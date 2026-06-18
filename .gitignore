@@ -1,0 +1,14 @@
+# Environment variables (contains private API keys)
+.env
+
+# Dependencies
+node_modules/
+
+# Compiled files
+dist/
+
+# System / IDE files
+.DS_Store
+.vscode/
+.idea/
+*.log

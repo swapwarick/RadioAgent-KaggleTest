@@ -7,6 +7,7 @@ let audioContext = null;
 let audioSource = null;
 let analyser = null;
 let visualizerAnimationId = null;
+let hlsInstance = null;
 
 // Globe.GL states
 let globeInstance = null;
@@ -52,7 +53,7 @@ sessionTag.textContent = `Session: ${sessionId.substring(8)}`;
 // Resize visualizer canvas
 function resizeCanvas() {
   visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth;
-  visualizerCanvas.height = 90;
+  visualizerCanvas.height = 65;
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
@@ -306,15 +307,32 @@ function parseSimpleMarkdown(md) {
   // Escape raw HTML first
   let html = escapeHTML(md);
   
-  // Format code blocks (like json-stations)
-  html = html.replace(/```(json-stations|json|javascript|bash|css|html)?\s*([\s\S]*?)\s*```/g, (match, lang, code) => {
-    return `<pre><code class="language-${lang || 'txt'}">${code}</code></pre>`;
+  // 1. Extract code blocks and replace with placeholders (supports streaming/open blocks too)
+  const codeBlocks = [];
+  html = html.replace(/```(json-stations|json|javascript|typescript|bash|css|html)?\s*([\s\S]*?)(?:```|$)/g, (match, lang, code) => {
+    const placeholder = `\n\n__CODE_BLOCK_${codeBlocks.length}__\n\n`;
+    codeBlocks.push(`<pre><code class="language-${lang || 'txt'}">${code}</code></pre>`);
+    return placeholder;
   });
   
-  // Convert lines into paragraphs
-  html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+  // 2. Convert double newlines to paragraphs
+  let paragraphs = html.split(/\n\n+/);
+  paragraphs = paragraphs.map(p => {
+    let trimmed = p.trim();
+    if (!trimmed) return '';
+    if (/^__CODE_BLOCK_\d+__$/.test(trimmed)) {
+      return trimmed; // keep placeholder lines separate from paragraphs
+    }
+    return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+  });
+  html = paragraphs.filter(p => p !== '').join('');
   
-  // Bold formatting
+  // 3. Restore code blocks
+  codeBlocks.forEach((codeBlockMarkup, index) => {
+    html = html.replace(`__CODE_BLOCK_${index}__`, codeBlockMarkup);
+  });
+  
+  // 4. Bold formatting
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   
   return html;
@@ -340,25 +358,81 @@ function tuneInStation(station) {
   playbackStatus.textContent = 'Connecting...';
   playPauseBtn.disabled = false;
 
-  // Route through local proxy to bypass CORS and mixed-content restrictions
-  const proxyUrl = `/api/stream?url=${encodeURIComponent(station.url)}`;
-  audioElement.src = proxyUrl;
-  audioElement.load();
+  // Clean up any existing Hls.js instance
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
+  }
 
-  // Try to play
-  audioElement.play()
-    .then(() => {
-      playbackStatus.textContent = 'Playing';
-      showPauseIcon();
-      setupAudioContext(); // Setup Web Audio API visualizer
-      updateGlobePlayState(true);
-    })
-    .catch(err => {
-      console.warn('Playback failed, streaming might be blocked or unreachable:', err);
-      playbackStatus.textContent = 'Stream error / Offline';
-      showPlayIcon();
-      updateGlobePlayState(false);
+  // Check if it's an HLS stream (.m3u8)
+  const isHls = station.url.toLowerCase().includes('.m3u8') || 
+                (station.contentType && (station.contentType.toLowerCase().includes('mpegurl') || station.contentType.toLowerCase().includes('hls')));
+
+  if (isHls && window.Hls && Hls.isSupported()) {
+    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
+    hlsInstance = new Hls();
+    hlsInstance.loadSource(proxyUrl);
+    hlsInstance.attachMedia(audioElement);
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      audioElement.play()
+        .then(() => {
+          playbackStatus.textContent = 'Playing';
+          showPauseIcon();
+          setupAudioContext(); // Setup Web Audio API visualizer
+          updateGlobePlayState(true);
+        })
+        .catch(err => {
+          console.warn('Playback failed:', err);
+          playbackStatus.textContent = 'Playback Error';
+          showPlayIcon();
+          updateGlobePlayState(false);
+        });
     });
+    hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        console.warn('Fatal HLS error:', data);
+        playbackStatus.textContent = 'Playback Error';
+        showPlayIcon();
+        updateGlobePlayState(false);
+      }
+    });
+  } else if (isHls && audioElement.canPlayType('application/vnd.apple.mpegurl')) {
+    // Native HLS support (Safari)
+    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
+    audioElement.src = proxyUrl;
+    audioElement.load();
+    audioElement.play()
+      .then(() => {
+        playbackStatus.textContent = 'Playing';
+        showPauseIcon();
+        setupAudioContext(); // Setup Web Audio API visualizer
+        updateGlobePlayState(true);
+      })
+      .catch(err => {
+        console.warn('Playback failed:', err);
+        playbackStatus.textContent = 'Playback Error';
+        showPlayIcon();
+        updateGlobePlayState(false);
+      });
+  } else {
+    // Normal audio stream (MP3, AAC, etc.)
+    const proxyUrl = `/api/stream?url=${encodeURIComponent(station.url)}`;
+    audioElement.src = proxyUrl;
+    audioElement.load();
+    audioElement.play()
+      .then(() => {
+        playbackStatus.textContent = 'Playing';
+        showPauseIcon();
+        setupAudioContext(); // Setup Web Audio API visualizer
+        updateGlobePlayState(true);
+      })
+      .catch(err => {
+        console.warn('Playback failed, streaming might be blocked or unreachable:', err);
+        playbackStatus.textContent = 'Stream error / Offline';
+        showPlayIcon();
+        updateGlobePlayState(false);
+      });
+  }
 
   // Animate flight to coordinate on the globe
   if (globeInstance) {
@@ -772,7 +846,7 @@ function updateGlobePlayState(isPlaying) {
       card.querySelector('.tune-in-btn').textContent = 'Playing';
       
       // Auto-scroll card into view smoothly
-      card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     } else {
       card.classList.remove('active-playing');
       card.querySelector('.tune-in-btn').textContent = 'Tune In';

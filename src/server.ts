@@ -30,7 +30,29 @@ app.get('/api/health', (req, res) => {
 
 // GET /api/stream - Audio stream proxy (solves CORS + mixed-content for radio streams)
 // Usage: /api/stream?url=https://tsfjazz.ice.infomaniak.ch/tsfjazz-high.mp3
-app.get('/api/stream', (req, res) => {
+// Helper to rewrite relative paths inside .m3u8 files to route through our proxy
+function rewritePlaylist(bodyText: string, targetUrl: string): string {
+  const lines = bodyText.split('\n');
+  const rewritten = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      return line;
+    }
+    try {
+      const absoluteUrl = new URL(trimmed, targetUrl).href;
+      // Determine proxy route based on file type
+      const endpoint = absoluteUrl.includes('.m3u8') ? '/api/stream.m3u8' : '/api/stream';
+      return `${endpoint}?url=${encodeURIComponent(absoluteUrl)}`;
+    } catch {
+      return line;
+    }
+  });
+  return rewritten.join('\n');
+}
+
+// GET /api/stream - Audio stream proxy (solves CORS + mixed-content for radio streams)
+// Usage: /api/stream?url=https://tsfjazz.ice.infomaniak.ch/tsfjazz-high.mp3
+app.get(['/api/stream', '/api/stream.m3u8'], (req, res) => {
   const targetUrl = req.query.url as string;
   if (!targetUrl) {
     return res.status(400).send('Missing ?url= parameter');
@@ -55,27 +77,49 @@ app.get('/api/stream', (req, res) => {
     },
   };
 
-  const proxyReq = lib.request(options, (proxyRes) => {
-    // Follow a single redirect
+  const handleResponse = (proxyRes: http.IncomingMessage, originalUrl: string) => {
+    // Follow a single redirect recursively
     if ((proxyRes.statusCode === 301 || proxyRes.statusCode === 302) && proxyRes.headers.location) {
       proxyRes.resume();
-      const redirected = new URL(proxyRes.headers.location, targetUrl);
+      const redirected = new URL(proxyRes.headers.location, originalUrl);
       const lib2 = redirected.protocol === 'https:' ? https : http;
       const req2 = lib2.get(redirected.href, { headers: options.headers }, (res2) => {
-        res.setHeader('Content-Type', res2.headers['content-type'] || 'audio/mpeg');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res2.pipe(res);
+        handleResponse(res2, redirected.href);
       });
-      req2.on('error', () => res.status(502).send('Stream redirect failed'));
+      req2.on('error', () => {
+        if (!res.headersSent) res.status(502).send('Stream redirect failed');
+      });
       return;
     }
 
-    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mpeg');
+    const contentType = proxyRes.headers['content-type'] || '';
+    res.setHeader('Content-Type', contentType || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(proxyRes.statusCode || 200);
-    proxyRes.pipe(res);
+
+    const isM3u8 = originalUrl.toLowerCase().includes('.m3u8') || 
+                   contentType.toLowerCase().includes('mpegurl') || 
+                   contentType.toLowerCase().includes('m3u8');
+
+    if (isM3u8) {
+      const chunks: Buffer[] = [];
+      proxyRes.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      proxyRes.on('end', () => {
+        const bodyText = Buffer.concat(chunks).toString('utf8');
+        const rewritten = rewritePlaylist(bodyText, originalUrl);
+        res.setHeader('Content-Length', Buffer.byteLength(rewritten));
+        res.end(rewritten);
+      });
+    } else {
+      proxyRes.pipe(res);
+    }
+  };
+
+  const proxyReq = lib.request(options, (proxyRes) => {
+    handleResponse(proxyRes, targetUrl);
   });
 
   proxyReq.on('error', (err) => {

@@ -8,9 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.2">
+  <link rel="stylesheet" href="main.css?v=1.2">
   <!-- Globe.GL WebGL library -->
   <script src="https://unpkg.com/globe.gl"></script>
+  <!-- HLS.js for HLS stream playback support in all browsers -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 </head>
 <body>
   <!-- Full-screen Globe Background -->
@@ -148,29 +150,28 @@
               </button>
               <input type="range" id="volume-slider" min="0" max="100" value="80" class="slider">
             </div>
-            
             <div id="playback-status" class="playback-status">Ready</div>
+          </div>
+        </div>
+
+        <!-- Discovered Stations Card -->
+        <div class="card discovered-stations-card" id="stations-list-container">
+          <div class="card-header">
+            <h3>Discovered Stations</h3>
+            <span class="station-count" id="stations-count">0 Stations</span>
+          </div>
+          <div class="stations-list-vertical" id="stations-list">
+            <!-- Discovered station cards go here -->
+            <div class="empty-cards-state">
+              No stations discovered yet. Ask the agent to find some!
+            </div>
           </div>
         </div>
       </section>
 
     </main>
-
-    <!-- Floating bottom slider overlay -->
-    <div class="discovered-overlay-list" id="stations-list-container">
-      <div class="overlay-header">
-        <h4>Discovered Stations</h4>
-        <span class="station-count" id="stations-count">0 Stations</span>
-      </div>
-      <div class="horizontal-cards" id="stations-list">
-        <!-- Discovered station cards go here -->
-        <div class="empty-cards-state">
-          No stations discovered yet. Ask the agent to find some!
-        </div>
-      </div>
-    </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=1.2"></script>
 </body>
 </html>

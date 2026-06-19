@@ -1,5 +1,5 @@
 // Constants and UI Elements
-const sessionId = 'session_' + Math.random().toString(36).substring(2, 11);
+const sessionId = 'session_mob_' + Math.random().toString(36).substring(2, 11);
 let activeAgentMessageEl = null;
 let currentAgentText = '';
 let isGenerating = false;
@@ -24,8 +24,6 @@ const tracePanel = document.getElementById('agent-trace');
 const traceToggle = document.getElementById('trace-toggle');
 const traceLogs = document.getElementById('trace-logs');
 const suggestions = document.querySelectorAll('.chip');
-const sessionTag = document.getElementById('session-tag');
-
 
 // Player Elements
 const audioElement = document.getElementById('audio-element');
@@ -47,16 +45,79 @@ const tunerFrequency = document.getElementById('tuner-frequency');
 const visualizerCanvas = document.getElementById('visualizer-canvas');
 const canvasCtx = visualizerCanvas.getContext('2d');
 
-// Set Session ID in header
-sessionTag.textContent = `Session: ${sessionId.substring(8)}`;
+// Pointer-events styling adjustments dynamically for container layout clicks
+const mobileAppContainer = document.querySelector('.mobile-app-container');
+const mobileViews = document.querySelector('.mobile-views');
+const viewChat = document.getElementById('view-chat');
+const viewGlobe = document.getElementById('view-globe');
+const viewTuner = document.getElementById('view-tuner');
+const globeContainerMobile = document.getElementById('globe-container-mobile');
+
+mobileAppContainer.style.pointerEvents = 'none';
+mobileViews.style.pointerEvents = 'none';
+
+// Re-enable pointer events for interactive sub-sections
+document.querySelector('.mobile-header').style.pointerEvents = 'auto';
+document.querySelector('.mobile-nav').style.pointerEvents = 'auto';
+viewChat.style.pointerEvents = 'auto';
+viewTuner.style.pointerEvents = 'auto';
 
 // Resize visualizer canvas
 function resizeCanvas() {
-  visualizerCanvas.width = visualizerCanvas.parentElement.clientWidth;
-  visualizerCanvas.height = 65;
+  if (visualizerCanvas.parentElement) {
+    const parentWidth = visualizerCanvas.parentElement.clientWidth || window.innerWidth - 40;
+    visualizerCanvas.width = parentWidth;
+    visualizerCanvas.height = 55;
+  }
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
+
+// ==========================================
+// 1. TAB CONTROLLER LOGIC
+// ==========================================
+const navTabs = document.querySelectorAll('.nav-tab');
+
+navTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const selectedTab = tab.dataset.tab;
+    
+    // Toggle active classes on tab buttons
+    navTabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    
+    // Toggle active view panels
+    const viewId = `view-${selectedTab}`;
+    const views = document.querySelectorAll('.mobile-view');
+    views.forEach(v => {
+      v.classList.remove('active');
+      if (v.id === viewId) {
+        v.classList.add('active');
+      }
+    });
+
+    // Control Globe accessibility & pointer events depending on active tab
+    if (selectedTab === 'globe') {
+      globeContainerMobile.style.pointerEvents = 'auto';
+      globeContainerMobile.style.opacity = '1';
+    } else {
+      globeContainerMobile.style.pointerEvents = 'none';
+      if (selectedTab === 'chat') {
+        globeContainerMobile.style.opacity = '0.3'; // dim background on chat
+      } else {
+        globeContainerMobile.style.opacity = '0.4';
+      }
+    }
+
+    // Trigger visualizer canvas resize if tuner tab is activated (prevents 0-width rendering)
+    if (selectedTab === 'tuner') {
+      setTimeout(resizeCanvas, 50);
+    }
+  });
+});
+
+// Default opacity settings on startup
+globeContainerMobile.style.opacity = '0.3';
 
 // ==========================================
 // 2. CHAT & AGENT ORCHESTRATION
@@ -131,17 +192,15 @@ function handleAgentEvent(data) {
 
   switch (type) {
     case 'thought':
-      appendTraceLog('thought', `[Thought - ${author}] ${content}`);
+      appendTraceLog('thought', `[Thought] ${content}`);
       break;
 
     case 'tool_call':
-      const argsStr = JSON.stringify(call.args);
-      appendTraceLog('tool_call', `[Tool Call] ${author} called "${call.name}" with args: ${argsStr}`);
+      appendTraceLog('tool_call', `[Tool Call] searching for "${call.args.query}"`);
       break;
 
     case 'tool_result':
-      const resStr = typeof result.response === 'object' ? JSON.stringify(result.response) : result.response;
-      appendTraceLog('tool_result', `[Tool Result] "${result.name}" returned: ${resStr}`);
+      appendTraceLog('tool_result', `[Tool Result] Verified ${result.playableCount || 0} playable stations.`);
       break;
 
     case 'content':
@@ -167,7 +226,6 @@ function startGeneratorState() {
   activeAgentMessageEl = null;
   currentAgentText = '';
   
-  // Clear trace logs
   traceLogs.innerHTML = '';
   tracePanel.classList.remove('collapsed');
 }
@@ -208,19 +266,24 @@ function appendAgentDelta(text) {
   }
 
   currentAgentText += text;
-  // Simple markdown-to-html conversion for display
   activeAgentMessageEl.querySelector('.message-content').innerHTML = parseSimpleMarkdown(currentAgentText);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function finalizeAgentMessage() {
-  // Extract json-stations block
   const regex = /```json-stations\s*([\s\S]*?)\s*```/;
   const match = currentAgentText.match(regex);
   if (match) {
     try {
       const stations = JSON.parse(match[1].trim());
       updateDiscoveredStations(stations);
+      
+      // Auto switch tabs to tuner console to show discovered list on mobile
+      setTimeout(() => {
+        const tunerTabButton = document.querySelector('.nav-tab[data-tab="tuner"]');
+        if (tunerTabButton) tunerTabButton.click();
+      }, 1500);
+
     } catch (err) {
       console.error('Failed to parse json-stations from message:', err);
     }
@@ -243,7 +306,6 @@ function updateDiscoveredStations(stations) {
     return;
   }
 
-  // Map stations to coordinates
   discoveredStationsData = stations.map(station => {
     const coords = getCoordinatesForLocation(station.location);
     return {
@@ -281,9 +343,15 @@ function updateDiscoveredStations(stations) {
     });
 
     card.addEventListener('click', () => {
+      // Switch tab to Globe
+      const globeTabButton = document.querySelector('.nav-tab[data-tab="globe"]');
+      if (globeTabButton) globeTabButton.click();
+
       // Orbit camera over this location
       if (globeInstance && (station.lat !== 0 || station.lng !== 0)) {
-        globeInstance.pointOfView({ lat: station.lat, lng: station.lng, altitude: 1.8 }, 1200);
+        setTimeout(() => {
+          globeInstance.pointOfView({ lat: station.lat, lng: station.lng, altitude: 1.8 }, 1200);
+        }, 300);
       }
     });
 
@@ -296,7 +364,7 @@ function updateDiscoveredStations(stations) {
   }
 }
 
-// Simple Sanitizers
+// Sanitizers and Markdown Parsers
 function escapeHTML(str) {
   return str.replace(/[&<>'"]/g, 
     tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
@@ -304,37 +372,29 @@ function escapeHTML(str) {
 }
 
 function parseSimpleMarkdown(md) {
-  // Escape raw HTML first
   let html = escapeHTML(md);
-  
-  // 1. Extract code blocks and replace with placeholders (supports streaming/open blocks too)
   const codeBlocks = [];
+  
   html = html.replace(/```(json-stations|json|javascript|typescript|bash|css|html)?\s*([\s\S]*?)(?:```|$)/g, (match, lang, code) => {
     const placeholder = `\n\n__CODE_BLOCK_${codeBlocks.length}__\n\n`;
     codeBlocks.push(`<pre><code class="language-${lang || 'txt'}">${code}</code></pre>`);
     return placeholder;
   });
   
-  // 2. Convert double newlines to paragraphs
   let paragraphs = html.split(/\n\n+/);
   paragraphs = paragraphs.map(p => {
     let trimmed = p.trim();
     if (!trimmed) return '';
-    if (/^__CODE_BLOCK_\d+__$/.test(trimmed)) {
-      return trimmed; // keep placeholder lines separate from paragraphs
-    }
+    if (/^__CODE_BLOCK_\d+__$/.test(trimmed)) return trimmed;
     return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
   });
   html = paragraphs.filter(p => p !== '').join('');
   
-  // 3. Restore code blocks
   codeBlocks.forEach((codeBlockMarkup, index) => {
     html = html.replace(`__CODE_BLOCK_${index}__`, codeBlockMarkup);
   });
   
-  // 4. Bold formatting
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  
   return html;
 }
 
@@ -345,26 +405,35 @@ function parseSimpleMarkdown(md) {
 function tuneInStation(station) {
   currentlyPlayingStation = station;
 
-  // Update UI frequency randomly for realistic tuning feel
   const randFreq = (Math.random() * (107.9 - 87.5) + 87.5).toFixed(1);
   tunerFrequency.textContent = `${randFreq} MHz`;
 
-  // Update Details Card
+  // Update details display
   currentStationName.textContent = station.name;
   currentStationGenre.textContent = station.genre;
   currentStationLocation.textContent = station.location;
-  currentStreamInfo.textContent = `Format: ${station.contentType || 'unknown'} | URL: ${station.url.substring(0, 45)}...`;
+  currentStreamInfo.textContent = `Format: ${station.contentType || 'unknown'} | URL: ${station.url.substring(0, 35)}...`;
 
   playbackStatus.textContent = 'Connecting...';
   playPauseBtn.disabled = false;
 
-  // Clean up any existing Hls.js instance
+  // Cleanup existing HLS
   if (hlsInstance) {
     hlsInstance.destroy();
     hlsInstance = null;
   }
 
-  // Check if it's an HLS stream (.m3u8)
+  // Reload lists active tags
+  document.querySelectorAll('.station-card-item').forEach(card => {
+    if (card.dataset.url === station.url) {
+      card.classList.add('active-playing');
+      card.querySelector('.tune-in-btn').textContent = 'Playing';
+    } else {
+      card.classList.remove('active-playing');
+      card.querySelector('.tune-in-btn').textContent = 'Tune In';
+    }
+  });
+
   const isHls = station.url.toLowerCase().includes('.m3u8') || 
                 (station.contentType && (station.contentType.toLowerCase().includes('mpegurl') || station.contentType.toLowerCase().includes('hls')));
 
@@ -378,44 +447,25 @@ function tuneInStation(station) {
         .then(() => {
           playbackStatus.textContent = 'Playing';
           showPauseIcon();
-          setupAudioContext(); // Setup Web Audio API visualizer
+          setupAudioContext();
           updateGlobePlayState(true);
         })
         .catch(err => {
-          console.warn('Playback failed:', err);
-          playbackStatus.textContent = 'Playback Error';
+          console.warn(err);
+          playbackStatus.textContent = 'Error';
           showPlayIcon();
           updateGlobePlayState(false);
         });
     });
     hlsInstance.on(Hls.Events.ERROR, (event, data) => {
       if (data.fatal) {
-        console.warn('Fatal HLS error:', data);
-        playbackStatus.textContent = 'Playback Error';
+        playbackStatus.textContent = 'Error';
         showPlayIcon();
         updateGlobePlayState(false);
       }
     });
-  } else if (isHls && audioElement.canPlayType('application/vnd.apple.mpegurl')) {
-    // Native HLS support (Safari)
-    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
-    audioElement.src = proxyUrl;
-    audioElement.load();
-    audioElement.play()
-      .then(() => {
-        playbackStatus.textContent = 'Playing';
-        showPauseIcon();
-        setupAudioContext(); // Setup Web Audio API visualizer
-        updateGlobePlayState(true);
-      })
-      .catch(err => {
-        console.warn('Playback failed:', err);
-        playbackStatus.textContent = 'Playback Error';
-        showPlayIcon();
-        updateGlobePlayState(false);
-      });
   } else {
-    // Normal audio stream (MP3, AAC, etc.)
+    // Normal audio stream
     const proxyUrl = `/api/stream?url=${encodeURIComponent(station.url)}`;
     audioElement.src = proxyUrl;
     audioElement.load();
@@ -423,29 +473,18 @@ function tuneInStation(station) {
       .then(() => {
         playbackStatus.textContent = 'Playing';
         showPauseIcon();
-        setupAudioContext(); // Setup Web Audio API visualizer
+        setupAudioContext();
         updateGlobePlayState(true);
       })
       .catch(err => {
-        console.warn('Playback failed, streaming might be blocked or unreachable:', err);
-        playbackStatus.textContent = 'Stream error / Offline';
+        console.warn(err);
+        playbackStatus.textContent = 'Error / Offline';
         showPlayIcon();
         updateGlobePlayState(false);
       });
   }
-
-  // Animate flight to coordinate on the globe
-  if (globeInstance) {
-    const coords = getCoordinatesForLocation(station.location);
-    const lat = coords ? coords[0] : (station.lat || 0);
-    const lng = coords ? coords[1] : (station.lng || 0);
-    if (lat !== 0 || lng !== 0) {
-      globeInstance.pointOfView({ lat, lng, altitude: 1.8 }, 1500);
-    }
-  }
 }
 
-// Play/Pause button handler
 playPauseBtn.addEventListener('click', () => {
   if (audioElement.paused) {
     audioElement.play()
@@ -456,8 +495,7 @@ playPauseBtn.addEventListener('click', () => {
         updateGlobePlayState(true);
       })
       .catch(err => {
-        playbackStatus.textContent = 'Playback Error';
-        console.error(err);
+        playbackStatus.textContent = 'Error';
         updateGlobePlayState(false);
       });
   } else {
@@ -468,7 +506,7 @@ playPauseBtn.addEventListener('click', () => {
   }
 });
 
-// Audio element state changes
+// Audio listeners
 audioElement.addEventListener('waiting', () => {
   playbackStatus.textContent = 'Buffering...';
 });
@@ -482,14 +520,13 @@ audioElement.addEventListener('pause', () => {
   showPlayIcon();
   updateGlobePlayState(false);
 });
-audioElement.addEventListener('error', (e) => {
-  playbackStatus.textContent = 'Playback Error / Dead link';
+audioElement.addEventListener('error', () => {
+  playbackStatus.textContent = 'Error';
   showPlayIcon();
   updateGlobePlayState(false);
-  console.error('Audio tag error event:', e);
 });
 
-// Volume Control
+// Volume setup
 volumeSlider.addEventListener('input', (e) => {
   const vol = e.target.value / 100;
   audioElement.volume = vol;
@@ -532,27 +569,20 @@ function showPauseIcon() {
 // ==========================================
 
 function setupAudioContext() {
-  if (audioContext) return; // Already setup
-
+  if (audioContext) return;
   try {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 128; // Smaller for mobile performance optimization
 
-    // Connect source. Note: CORS restrictions apply to createMediaElementSource
-    // If stream server doesn't allow CORS, browser blocks Web Audio processing.
-    // In that case, we fall back to simulated wave visualizer.
     audioSource = audioContext.createMediaElementSource(audioElement);
     audioSource.connect(analyser);
     analyser.connect(audioContext.destination);
-
-    console.log('[Audio Visualizer] Web Audio API context connected.');
   } catch (err) {
-    console.warn('[Audio Visualizer] Failed to connect Web Audio API source due to CORS/Permissions. Falling back to simulation.');
+    console.warn('[Visualizer] CORS fallback animation active.');
   }
 }
 
-// Dynamic Glowing Wave visualizer loop
 let wavePhase = 0;
 function drawVisualizer() {
   visualizerAnimationId = requestAnimationFrame(drawVisualizer);
@@ -562,63 +592,50 @@ function drawVisualizer() {
 
   canvasCtx.clearRect(0, 0, width, height);
 
-  // Background Grid representation
-  canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+  // Background grid lines (optimized/spaced for mobile)
+  canvasCtx.strokeStyle = 'rgba(255, 255, 255, 0.015)';
   canvasCtx.lineWidth = 1;
-  for (let i = 20; i < width; i += 40) {
+  for (let i = 40; i < width; i += 60) {
     canvasCtx.beginPath();
     canvasCtx.moveTo(i, 0);
     canvasCtx.lineTo(i, height);
     canvasCtx.stroke();
   }
-  for (let i = 15; i < height; i += 30) {
-    canvasCtx.beginPath();
-    canvasCtx.moveTo(0, i);
-    canvasCtx.lineTo(width, i);
-    canvasCtx.stroke();
-  }
 
   const isPlaying = !audioElement.paused && !audioElement.muted && audioElement.readyState >= 2;
-
-  // Let's read actual frequency data if connected and CORS is ok
   let dataArray = null;
+
   if (analyser && isPlaying) {
     try {
       const bufferLength = analyser.frequencyBinCount;
       dataArray = new Uint8Array(bufferLength);
       analyser.getByteFrequencyData(dataArray);
     } catch (e) {
-      dataArray = null; // Fallback to simulation
+      dataArray = null;
     }
   }
 
-  // Draw 3 layers of smooth sine waves (simulating audio signals)
   const drawWave = (amplitudeFactor, frequency, speed, colorHex, lineWidth) => {
     canvasCtx.strokeStyle = colorHex;
     canvasCtx.lineWidth = lineWidth;
     canvasCtx.beginPath();
 
     wavePhase += speed;
-
-    const sliceWidth = width / 100;
+    const sliceWidth = width / 50; // Fewer slices for mobile processing efficiency
     let x = 0;
 
-    for (let i = 0; i <= 100; i++) {
-      // Base wave amplitude based on playing state and frequency data
-      let amp = 3; 
+    for (let i = 0; i <= 50; i++) {
+      let amp = 2; 
       if (isPlaying) {
         if (dataArray) {
-          // Map frequency data index to position
-          const dataIndex = Math.floor((i / 100) * dataArray.length);
-          amp = 5 + (dataArray[dataIndex] || 0) * 0.18 * amplitudeFactor;
+          const dataIndex = Math.floor((i / 50) * dataArray.length);
+          amp = 3 + (dataArray[dataIndex] || 0) * 0.15 * amplitudeFactor;
         } else {
-          // Simulation volume oscillation
-          amp = 10 + (Math.sin(wavePhase * 0.5) + 1.5) * 8 * amplitudeFactor;
+          amp = 6 + (Math.sin(wavePhase * 0.5) + 1.5) * 5 * amplitudeFactor;
         }
       }
 
-      // Sine wave equation with boundary fading
-      const fade = Math.sin((i / 100) * Math.PI); // Fades out at edges
+      const fade = Math.sin((i / 50) * Math.PI);
       const y = height / 2 + Math.sin(i * frequency + wavePhase) * amp * fade;
 
       if (i === 0) {
@@ -626,28 +643,20 @@ function drawVisualizer() {
       } else {
         canvasCtx.lineTo(x, y);
       }
-
       x += sliceWidth;
     }
-
     canvasCtx.stroke();
   };
 
-  // Render multi-layered glowing waves
   if (isPlaying) {
     // Neon Purple
-    drawWave(1.0, 0.15, 0.08, 'rgba(191, 90, 242, 0.8)', 2.5);
+    drawWave(1.0, 0.18, 0.08, 'rgba(191, 90, 242, 0.75)', 2);
     // Neon Cyan
-    drawWave(0.8, 0.22, -0.05, 'rgba(90, 200, 250, 0.6)', 1.5);
-    // Dark violet background wave
-    drawWave(0.4, 0.08, 0.02, 'rgba(10, 132, 255, 0.3)', 4);
+    drawWave(0.7, 0.25, -0.06, 'rgba(90, 200, 250, 0.65)', 1.2);
   } else {
-    // Flat line with tiny noise
-    drawWave(0.1, 0.05, 0.005, 'rgba(94, 107, 125, 0.3)', 1);
+    drawWave(0.1, 0.05, 0.005, 'rgba(94, 107, 125, 0.25)', 1);
   }
 }
-
-// Start Visualizer
 drawVisualizer();
 
 // ==========================================
@@ -697,7 +706,6 @@ const fallbackCountryCoords = {
   "denmark": [56.2639, 9.5018],
 };
 
-// Asynchronously load and cache standard coordinates from REST Countries API
 async function loadCountryCoords() {
   let cached = null;
   try {
@@ -705,20 +713,16 @@ async function loadCountryCoords() {
   } catch (e) {
     console.warn('[Storage] localstorage access denied:', e);
   }
-
+  
   if (cached) {
     try {
       countryCoordsMap = JSON.parse(cached);
-      console.log('[Geocoder] Country coordinates loaded from local cache.');
       return;
     } catch (e) {
-      console.error('[Geocoder] Failed to parse cached coordinates:', e);
+      console.error(e);
     }
   }
-
-  // Initialize with fallback coords
   countryCoordsMap = { ...fallbackCountryCoords };
-
   try {
     const res = await fetch('https://restcountries.com/v3.1/all');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -729,76 +733,50 @@ async function loadCountryCoords() {
         const name = country.name?.common?.toLowerCase();
         const official = country.name?.official?.toLowerCase();
         const latlng = country.latlng;
-        if (name && latlng && latlng.length === 2) {
-          freshMap[name] = latlng;
-        }
-        if (official && latlng && latlng.length === 2) {
-          freshMap[official] = latlng;
-        }
+        if (name && latlng && latlng.length === 2) freshMap[name] = latlng;
+        if (official && latlng && latlng.length === 2) freshMap[official] = latlng;
       });
       countryCoordsMap = freshMap;
       try {
         localStorage.setItem('world_radio_country_coords', JSON.stringify(freshMap));
-        console.log('[Geocoder] Coordinates mapping cache updated from REST Countries API.');
       } catch (e) {
         console.warn('[Storage] localstorage write denied:', e);
       }
     }
   } catch (err) {
-    console.warn('[Geocoder] Live coordinates fetch failed (falling back to offline coordinates map):', err.message);
+    console.warn('Fallback coords loaded:', err.message);
   }
 }
 
-// Convert Location Name string into [latitude, longitude] coordinates
 function getCoordinatesForLocation(location) {
   if (!location || typeof location !== 'string') return null;
   const parts = location.split(',').map(p => p.trim().toLowerCase());
 
-  // Check direct names
   for (const part of parts) {
-    if (countryCoordsMap[part]) {
-      return countryCoordsMap[part];
-    }
+    if (countryCoordsMap[part]) return countryCoordsMap[part];
   }
-
-  // Handle typical naming variations
   for (const part of parts) {
-    if (part.includes('usa') || part.includes('united states') || part.includes('us')) {
-      return countryCoordsMap['united states'];
-    }
-    if (part.includes('uk') || part.includes('united kingdom') || part.includes('england')) {
-      return countryCoordsMap['united kingdom'];
-    }
-    if (part.includes('russia')) {
-      return countryCoordsMap['russia'];
-    }
-    if (part.includes('korea')) {
-      return countryCoordsMap['south korea'];
-    }
+    if (part.includes('usa') || part.includes('united states') || part.includes('us')) return countryCoordsMap['united states'];
+    if (part.includes('uk') || part.includes('united kingdom') || part.includes('england')) return countryCoordsMap['united kingdom'];
+    if (part.includes('russia')) return countryCoordsMap['russia'];
+    if (part.includes('korea')) return countryCoordsMap['south korea'];
   }
-
-  // Try substring checks
   for (const part of parts) {
     for (const countryName of Object.keys(countryCoordsMap)) {
-      if (part.includes(countryName) || countryName.includes(part)) {
-        return countryCoordsMap[countryName];
-      }
+      if (part.includes(countryName) || countryName.includes(part)) return countryCoordsMap[countryName];
     }
   }
-
-  // Fallback: Create deterministic coord spread based on name hash (prevents overlaps on 0,0)
   let hash = 0;
   for (let i = 0; i < location.length; i++) {
     hash = location.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const lat = ((hash % 75) + 10) / 2; // Spread latitude between 5°N and 42.5°N
-  const lng = ((hash % 170) + 10) / 2; // Spread longitude between 5°E and 90°E
+  const lat = ((hash % 60) + 10) / 2; // Mobile coordinates geocode deterministic spread
+  const lng = ((hash % 160) + 10) / 2;
   return [lat, lng];
 }
 
-// Initialize Globe.GL inside container
 function initGlobe() {
-  const container = document.getElementById('globe-container');
+  const container = document.getElementById('globe-container-mobile');
   if (!container) return;
 
   if (typeof Globe === 'undefined') {
@@ -806,7 +784,7 @@ function initGlobe() {
     return;
   }
 
-  // Check for WebGL context support to avoid crashing on older devices / low power modes
+  // Check for WebGL context support to avoid crashing on older mobile devices / low power modes
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -823,84 +801,56 @@ function initGlobe() {
     .globeImageUrl('//unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
     .bumpImageUrl('//unpkg.com/three-globe/example/img/earth-topology.png')
     .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
-    .backgroundColor('rgba(0, 0, 0, 0)') // transparent body blend
+    .backgroundColor('rgba(0, 0, 0, 0)')
     .width(window.innerWidth)
     .height(window.innerHeight)
-    .pointColor(d => d.isPlaying ? '#5ac8fa' : '#bf5af2')
-    .pointRadius(d => d.isPlaying ? 0.35 : 0.18)
-    .pointAltitude(d => d.isPlaying ? 0.12 : 0.06)
-    .pointLabel(d => `
-      <div style="background: rgba(10, 12, 16, 0.95); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; color: #f5f6f8; font-family: Inter, sans-serif; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5); pointer-events: none;">
-        <b style="color: ${d.isPlaying ? '#5ac8fa' : '#bf5af2'}; font-size: 14px;">${escapeHTML(d.name)}</b><br/>
-        <span style="font-size: 11px; color: #9aa5b5;">${escapeHTML(d.genre)} · ${escapeHTML(d.location)}</span>
+    .pointColor(() => '#5ac8fa')
+    .pointAltitude(0.04)
+    .pointRadius(0.35)
+    .pointsMerge(false)
+    .pointLabel(s => `
+      <div style="background: rgba(10,12,16,0.85); color:#f5f6f8; border: 1px solid rgba(255,255,255,0.1); padding:6px 10px; border-radius:6px; font-family:sans-serif; font-size:12px;">
+        <strong>${escapeHTML(s.name)}</strong><br/>
+        <span style="color:#5ac8fa;">${escapeHTML(s.genre)}</span> · <span style="color:#9aa5b5;">${escapeHTML(s.location)}</span>
       </div>
-    `)
-    .onPointClick(d => {
-      tuneInStation(d);
-    })
-    .ringColor(() => '#5ac8fa')
-    .ringMaxRadius(4)
-    .ringPropagationSpeed(1.5)
-    .ringRepeatPeriod(1000);
+    `);
 
-  // Configure auto rotation (Three.js OrbitControls)
-  const controls = globeInstance.controls();
-  if (controls) {
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.5;
-  }
+  // Ring markers on active points
+  globeInstance
+    .ringsData([])
+    .ringColor(() => '#bf5af2')
+    .ringMaxRadius(4)
+    .ringPropagationSpeed(1.8)
+    .ringRepeatNum(2);
+
+  // Setup click pin listener
+  globeInstance.onPointClick((station) => {
+    // Tune in the station and show tuner panel
+    tuneInStation(station);
+    const tunerTabButton = document.querySelector('.nav-tab[data-tab="tuner"]');
+    if (tunerTabButton) tunerTabButton.click();
+  });
 
   // Handle window resizing
   window.addEventListener('resize', () => {
-    if (globeInstance) {
-      globeInstance.width(window.innerWidth);
-      globeInstance.height(window.innerHeight);
-    }
+    globeInstance.width(window.innerWidth).height(window.innerHeight);
   });
 }
 
-// Sync UI and Globe points visual properties with the current playing status
 function updateGlobePlayState(isPlaying) {
-  discoveredStationsData.forEach(s => {
-    s.isPlaying = isPlaying && currentlyPlayingStation && s.url === currentlyPlayingStation.url;
-  });
-
-  // Update card items active visual borders
-  const cards = document.querySelectorAll('.station-card-item');
-  cards.forEach(card => {
-    const isThisPlaying = isPlaying && currentlyPlayingStation && card.dataset.url === currentlyPlayingStation.url;
-    if (isThisPlaying) {
-      card.classList.add('active-playing');
-      card.querySelector('.tune-in-btn').textContent = 'Playing';
-      
-      // Auto-scroll card into view smoothly
-      card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-    } else {
-      card.classList.remove('active-playing');
-      card.querySelector('.tune-in-btn').textContent = 'Tune In';
-    }
-  });
-
-  // Re-render globe elements and rings
-  if (globeInstance) {
-    globeInstance.pointsData(discoveredStationsData);
-
-    if (isPlaying && currentlyPlayingStation) {
-      const coords = getCoordinatesForLocation(currentlyPlayingStation.location);
-      const lat = coords ? coords[0] : (currentlyPlayingStation.lat || 0);
-      const lng = coords ? coords[1] : (currentlyPlayingStation.lng || 0);
-      if (lat !== 0 || lng !== 0) {
-        globeInstance.ringsData([{ lat, lng }]);
-      }
-    } else {
-      globeInstance.ringsData([]);
-    }
+  if (!globeInstance || !currentlyPlayingStation) return;
+  
+  if (isPlaying) {
+    const lat = currentlyPlayingStation.lat || 0;
+    const lng = currentlyPlayingStation.lng || 0;
+    globeInstance.ringsData([{ lat, lng }]);
+  } else {
+    globeInstance.ringsData([]);
   }
 }
 
-// Load Coordinates and Start Globe
-loadCountryCoords().then(() => {
+// Initializer
+(async function initApp() {
+  await loadCountryCoords();
   initGlobe();
-});
-
-
+})();

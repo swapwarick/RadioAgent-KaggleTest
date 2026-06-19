@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>World Radio Finder - Mobile Console</title>
+  <!-- Google Fonts: Inter and Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/mobile/main.css">
+  <!-- Globe.GL WebGL library -->
+  <script src="https://unpkg.com/globe.gl"></script>
+  <!-- HLS.js for HLS stream playback support -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+</head>
+<body>
+  <!-- Full-screen Globe Background (Only interactive inside Globe Tab) -->
+  <div id="globe-container-mobile"></div>
+
+  <!-- Background glow effects -->
+  <div class="glow-bg glow-purple"></div>
+  <div class="glow-bg glow-blue"></div>
+
+  <div class="mobile-app-container">
+    <!-- Compact Mobile Header -->
+    <header class="mobile-header">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+            <path d="M2 12h20"></path>
+          </svg>
+        </div>
+        <h1>WorldRadio<span>Finder</span></h1>
+      </div>
+      <a href="/?desktop=true" class="desktop-link">Desktop View</a>
+    </header>
+
+    <!-- Main View Container -->
+    <main class="mobile-views">
+      <!-- Tab 1: Chat View -->
+      <section id="view-chat" class="mobile-view active">
+        <div class="chat-wrapper">
+          <!-- Mini Collapsible Agent Trace Panel -->
+          <div class="agent-trace-panel collapsed" id="agent-trace">
+            <div class="trace-header" id="trace-toggle">
+              <span>Agent reasoning log</span>
+              <svg class="chevron" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+            <div class="trace-body" id="trace-logs">
+              <div class="trace-empty">No trace details yet. Submit a query to see reasoning.</div>
+            </div>
+          </div>
+
+          <div class="chat-messages" id="chat-messages">
+            <!-- Initial Greeting -->
+            <div class="message system-message">
+              <div class="message-content">
+                Welcome to the Mobile Radio Finder. Ask the agent to find stations by genre, country, or city!
+              </div>
+            </div>
+          </div>
+
+          <!-- Preset Query Chips -->
+          <div class="query-suggestions">
+            <button class="chip" data-query="Find jazz radio stations in Paris and play them.">🇫🇷 Paris Jazz</button>
+            <button class="chip" data-query="Recommend a chillout or ambient station.">🎵 Ambient/Chill</button>
+            <button class="chip" data-query="Search for classic rock streams.">🎸 Classic Rock</button>
+            <button class="chip" data-query="Find Bollywood and Hindi radio stations from India.">🎬 Bollywood</button>
+          </div>
+
+          <!-- Chat Input -->
+          <form class="chat-input-form" id="chat-form">
+            <input type="text" id="chat-input" placeholder="Find genre, city, or station..." required autocomplete="off">
+            <button type="submit" class="send-btn" id="send-btn">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Tab 2: Globe View (Transparent container over the globe canvas) -->
+      <section id="view-globe" class="mobile-view">
+        <div class="globe-overlay-info">
+          <p>Drag to rotate · Pinch to zoom · Click pins to tune</p>
+        </div>
+      </section>
+
+      <!-- Tab 3: Tuner / Discovered Stations View -->
+      <section id="view-tuner" class="mobile-view">
+        <div class="tuner-wrapper">
+          <!-- Active Tuner Card -->
+          <div class="card tuner-card">
+            <div class="card-header">
+              <h3>Live Audio Tuner</h3>
+              <span class="tuning-freq" id="tuner-frequency">97.5 MHz</span>
+            </div>
+
+            <div class="tuner-display">
+              <canvas id="visualizer-canvas" class="visualizer"></canvas>
+              
+              <div class="tuner-details">
+                <div class="now-playing-label">NOW TUNED IN</div>
+                <h2 id="current-station-name" class="station-name">No Station Selected</h2>
+                <div class="station-meta">
+                  <span id="current-station-genre" class="badge">N/A</span>
+                  <span id="current-station-location" class="location">Select a station below</span>
+                </div>
+                <div class="stream-info-tag" id="current-stream-info">Format: -- | Bitrate: --</div>
+              </div>
+            </div>
+
+            <!-- Player Controls -->
+            <div class="player-controls">
+              <audio id="audio-element" crossorigin="anonymous"></audio>
+
+              <button id="play-pause-btn" class="play-btn" disabled>
+                <!-- Play Icon -->
+                <svg id="play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <!-- Pause Icon -->
+                <svg id="pause-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display: none;">
+                  <rect x="6" y="4" width="4" height="16"></rect>
+                  <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+              </button>
+
+              <div class="volume-container">
+                <button id="mute-btn" class="mute-btn">
+                  <svg id="volume-icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                  </svg>
+                  <svg id="mute-icon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <line x1="23" y1="9" x2="17" y2="15"></line>
+                    <line x1="17" y1="9" x2="23" y2="15"></line>
+                  </svg>
+                </button>
+                <input type="range" id="volume-slider" min="0" max="100" value="80" class="slider">
+              </div>
+              
+              <div id="playback-status" class="playback-status">Ready</div>
+            </div>
+          </div>
+
+          <!-- Discovered Stations Card -->
+          <div class="card discovered-stations-card" id="stations-list-container">
+            <div class="card-header">
+              <h3>Discovered Stations</h3>
+              <span class="station-count" id="stations-count">0 Stations</span>
+            </div>
+            <div class="stations-list-vertical" id="stations-list">
+              <div class="empty-cards-state">
+                No stations discovered yet. Ask the agent to find some!
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="mobile-nav">
+      <button class="nav-tab active" data-tab="chat">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+        <span>Agent Chat</span>
+      </button>
+
+      <button class="nav-tab" data-tab="globe">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+          <path d="M2 12h20"></path>
+        </svg>
+        <span>3D Globe</span>
+      </button>
+
+      <button class="nav-tab" data-tab="tuner">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+          <path d="M16 3H8L2 7h20z"></path>
+          <circle cx="8" cy="14" r="2"></circle>
+          <path d="M12 14h6"></path>
+        </svg>
+        <span>Tuner Console</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="/mobile/app.js"></script>
+</body>
+</html>

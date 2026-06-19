@@ -319,6 +319,73 @@ async function verifyAudioStreamHelper(url: string): Promise<{ url: string; stat
   }
 }
 
+/**
+ * Searches for radio stations using the RapidAPI Radio World API.
+ * Uses the RAPIDAPI_KEY from environment variables.
+ */
+async function rapidapiSearch(query: string): Promise<any[]> {
+  const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    console.log('[RapidAPI Search] RAPIDAPI_KEY not found in environment.');
+    return [];
+  }
+
+  const endpoint = `https://radio-world-75-000-worldwide-fm-radio-stations.p.rapidapi.com/search.php?query=${encodeURIComponent(query)}&limit=10`;
+  console.log(`[RapidAPI Search] Querying: ${endpoint}`);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'x-rapidapi-key': apiKey,
+        'x-rapidapi-host': 'radio-world-75-000-worldwide-fm-radio-stations.p.rapidapi.com',
+        'Content-Type': 'application/json'
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!res.ok) {
+      console.warn(`[RapidAPI Search] RapidAPI returned HTTP ${res.status}`);
+      return [];
+    }
+
+    const data: any = await res.json();
+    console.log('[RapidAPI Search] Response received successfully');
+
+    let stationsData: any[] = [];
+    if (Array.isArray(data)) {
+      stationsData = data;
+    } else if (data && Array.isArray(data.data)) {
+      stationsData = data.data;
+    } else if (data && typeof data === 'object') {
+      for (const key of Object.keys(data)) {
+        if (Array.isArray((data as any)[key])) {
+          stationsData = (data as any)[key];
+          break;
+        }
+      }
+    }
+
+    if (stationsData.length === 0) {
+      console.log('[RapidAPI Search] No stations found in RapidAPI response structure.');
+      return [];
+    }
+
+    return stationsData
+      .filter((s: any) => s.radio_url || s.url || s.url_resolved)
+      .map((s: any) => ({
+        name: s.radio_name || s.name || 'Unknown Station',
+        url: s.radio_url || s.url || s.url_resolved,
+        genre: s.genre || (s.tags ? (Array.isArray(s.tags) ? s.tags.join(', ') : s.tags) : 'Unknown'),
+        location: s.country_name || [s.country, s.state].filter(Boolean).join(', ') || 'Unknown',
+        description: s.description || `RapidAPI Radio World stream (ID: ${s.radio_id || s.id || 'N/A'})`,
+      }));
+  } catch (err: any) {
+    console.warn(`[RapidAPI Search] Failed: ${err.message}`);
+    return [];
+  }
+}
+
 // ==========================================
 // 2. COMBINED SEARCH-AND-TUNE TOOL (Single LLM tool call handles both steps)
 // ==========================================
@@ -416,6 +483,16 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
   } else {
     // Generic name search
     rbParams.set('name', query);
+  }
+
+  // Try RapidAPI Radio World search first if a key is configured
+  if (process.env.RAPIDAPI_KEY) {
+    const rapidapiStations = await rapidapiSearch(query);
+    if (rapidapiStations && rapidapiStations.length > 0) {
+      console.log(`[Radio Finder] Found ${rapidapiStations.length} stations via RapidAPI.`);
+      return { stations: rapidapiStations, fallbackStations: curatedFallback };
+    }
+    console.log('[Radio Finder] RapidAPI returned no results or failed. Falling back to Radio Browser...');
   }
 
   // Try Radio Browser API — free public database of 30,000+ real Icecast/Shoutcast streams

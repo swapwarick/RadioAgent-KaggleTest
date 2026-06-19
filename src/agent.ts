@@ -367,6 +367,18 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
       { name: 'SomaFM Drone Zone', location: 'San Francisco, USA', genre: 'Ambient', url: 'https://ice1.somafm.com/dronezone-128-mp3', description: 'Deep ambient drone.', trusted: true },
       { name: 'SomaFM Lush', location: 'San Francisco, USA', genre: 'Chillout', url: 'https://ice1.somafm.com/lush-128-mp3', description: 'Lush sensuous vocals.', trusted: true },
     ];
+  } else if (lowercaseQuery.includes('punk') || lowercaseQuery.includes('punk rock')) {
+    rbParams.set('tag', 'punk');
+    curatedFallback = [
+      { name: 'Real Punk Radio', location: 'USA', genre: 'Punk Rock', url: 'http://192.111.140.6:8028/stream', description: 'Real punk rock radio.', trusted: true },
+      { name: 'Punk FM', location: 'Sweden', genre: 'Punk Rock', url: 'http://198.245.60.88:8080/stream', description: 'High energy punk rock.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('alternative') || lowercaseQuery.includes('alternatives') || lowercaseQuery.includes('indie')) {
+    rbParams.set('tag', 'alternative');
+    curatedFallback = [
+      { name: 'SomaFM Indie Pop Rocks', location: 'San Francisco, USA', genre: 'Alternative/Indie', url: 'https://ice1.somafm.com/indiepop-128-mp3', description: 'Underground indie rock and pop.', trusted: true },
+      { name: 'SomaFM Left of Center', location: 'San Francisco, USA', genre: 'Alternative/Indie', url: 'https://ice1.somafm.com/leftofcenter-128-mp3', description: 'Left of center indie rock.', trusted: true }
+    ];
   } else if (lowercaseQuery.includes('rock') || lowercaseQuery.includes('classic rock')) {
     rbParams.set('tag', 'rock');
     curatedFallback = [
@@ -384,11 +396,12 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
     curatedFallback = [
       { name: 'SomaFM Fluid', location: 'San Francisco, USA', genre: 'Electronic/Latin', url: 'https://ice1.somafm.com/fluid-128-mp3', description: 'Smooth electronic.', trusted: true },
     ];
-  } else if (lowercaseQuery.includes('electronic') || lowercaseQuery.includes('edm') || lowercaseQuery.includes('techno') || lowercaseQuery.includes('house')) {
-    rbParams.set('tag', 'electronic');
+  } else if (lowercaseQuery.includes('electronic') || lowercaseQuery.includes('edm') || lowercaseQuery.includes('techno') || lowercaseQuery.includes('house') || lowercaseQuery.includes('dance') || lowercaseQuery.includes('dj') || lowercaseQuery.includes('club')) {
+    rbParams.set('tag', 'dance');
     curatedFallback = [
-      { name: 'SomaFM Cliqhop', location: 'San Francisco, USA', genre: 'IDM/Electronic', url: 'https://ice1.somafm.com/cliqhop-128-mp3', description: 'IDM and electronic.', trusted: true },
-      { name: 'SomaFM Subsonic', location: 'San Francisco, USA', genre: 'Dubstep/Bass', url: 'https://ice1.somafm.com/suburbsonic-128-mp3', description: 'Heavy bass.', trusted: true },
+      { name: 'SomaFM Beat Blender', location: 'San Francisco, USA', genre: 'Dance/DJ', url: 'https://ice1.somafm.com/beatblender-128-mp3', description: 'Deep house and tech-house.', trusted: true },
+      { name: 'SomaFM House-in-a-box', location: 'San Francisco, USA', genre: 'Dance/House', url: 'https://ice1.somafm.com/house-128-mp3', description: 'Club house music.', trusted: true },
+      { name: 'SomaFM Cliqhop', location: 'San Francisco, USA', genre: 'IDM/Electronic', url: 'https://ice1.somafm.com/cliqhop-128-mp3', description: 'IDM and electronic.', trusted: true }
     ];
   } else if (lowercaseQuery.includes('classical') || lowercaseQuery.includes('orchestra')) {
     rbParams.set('tag', 'classical');

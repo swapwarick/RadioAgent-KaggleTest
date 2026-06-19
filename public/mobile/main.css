@@ -300,6 +300,15 @@ html, body {
   background: rgba(255, 255, 255, 0.08);
   border-color: var(--accent-cyan);
 }
+.chip.chip-rock:active, .chip.chip-rock:hover { border-color: #ff453a; box-shadow: 0 0 10px rgba(255, 69, 58, 0.35); color: #ff453a; }
+.chip.chip-punk:active, .chip.chip-punk:hover { border-color: #bf5af2; box-shadow: 0 0 10px rgba(191, 90, 242, 0.35); color: #bf5af2; }
+.chip.chip-alt:active, .chip.chip-alt:hover { border-color: #5ac8fa; box-shadow: 0 0 10px rgba(90, 200, 250, 0.35); color: #5ac8fa; }
+.chip.chip-pop:active, .chip.chip-pop:hover { border-color: #ff375f; box-shadow: 0 0 10px rgba(255, 55, 95, 0.35); color: #ff375f; }
+.chip.chip-dance:active, .chip.chip-dance:hover { border-color: #0a84ff; box-shadow: 0 0 10px rgba(10, 132, 255, 0.35); color: #0a84ff; }
+.chip.chip-jazz:active, .chip.chip-jazz:hover { border-color: #ffd60a; box-shadow: 0 0 10px rgba(255, 214, 10, 0.35); color: #ffd60a; }
+.chip.chip-ambient:active, .chip.chip-ambient:hover { border-color: #30d158; box-shadow: 0 0 10px rgba(48, 209, 88, 0.35); color: #30d158; }
+.chip.chip-bollywood:active, .chip.chip-bollywood:hover { border-color: #ff9f0a; box-shadow: 0 0 10px rgba(255, 159, 10, 0.35); color: #ff9f0a; }
+.chip.chip-news:active, .chip.chip-news:hover { border-color: #acb5c0; box-shadow: 0 0 10px rgba(172, 181, 192, 0.35); color: #acb5c0; }
 
 /* Chat Input Bottom Row */
 .chat-input-form {

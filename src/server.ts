@@ -211,7 +211,7 @@ app.post('/api/chat', async (req, res) => {
               hitRateLimit = true;
               break;
             }
-            res.write(`data: ${JSON.stringify({ author, ...structEv })}\n\n`);
+            res.write(`data: ${JSON.stringify({ author, ...structEv, message: errMsg })}\n\n`);
           } else {
             res.write(`data: ${JSON.stringify({ author, ...structEv })}\n\n`);
           }

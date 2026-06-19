@@ -320,7 +320,7 @@ async function verifyAudioStreamHelper(url: string): Promise<{ url: string; stat
 }
 
 /**
- * Searches for radio stations using the RapidAPI Radio World API.
+ * Searches for radio stations using the RapidAPI 50K Radio Stations API.
  * Uses the RAPIDAPI_KEY from environment variables.
  */
 async function rapidapiSearch(query: string): Promise<any[]> {
@@ -330,15 +330,15 @@ async function rapidapiSearch(query: string): Promise<any[]> {
     return [];
   }
 
-  const endpoint = `https://radio-world-75-000-worldwide-fm-radio-stations.p.rapidapi.com/search.php?query=${encodeURIComponent(query)}&limit=10`;
+  const endpoint = `https://50k-radio-stations.p.rapidapi.com/radios?name=${encodeURIComponent(query)}&limit=10`;
   console.log(`[RapidAPI Search] Querying: ${endpoint}`);
 
   try {
     const res = await fetch(endpoint, {
       method: 'GET',
       headers: {
-        'x-rapidapi-key': apiKey,
-        'x-rapidapi-host': 'radio-world-75-000-worldwide-fm-radio-stations.p.rapidapi.com',
+        'X-RapidAPI-Key': apiKey,
+        'X-RapidAPI-Host': '50k-radio-stations.p.rapidapi.com',
         'Content-Type': 'application/json'
       },
       signal: AbortSignal.timeout(6000),
@@ -353,17 +353,12 @@ async function rapidapiSearch(query: string): Promise<any[]> {
     console.log('[RapidAPI Search] Response received successfully');
 
     let stationsData: any[] = [];
-    if (Array.isArray(data)) {
+    if (data && data.success && Array.isArray(data.data)) {
+      stationsData = data.data;
+    } else if (Array.isArray(data)) {
       stationsData = data;
     } else if (data && Array.isArray(data.data)) {
       stationsData = data.data;
-    } else if (data && typeof data === 'object') {
-      for (const key of Object.keys(data)) {
-        if (Array.isArray((data as any)[key])) {
-          stationsData = (data as any)[key];
-          break;
-        }
-      }
     }
 
     if (stationsData.length === 0) {
@@ -372,14 +367,23 @@ async function rapidapiSearch(query: string): Promise<any[]> {
     }
 
     return stationsData
-      .filter((s: any) => s.radio_url || s.url || s.url_resolved)
-      .map((s: any) => ({
-        name: s.radio_name || s.name || 'Unknown Station',
-        url: s.radio_url || s.url || s.url_resolved,
-        genre: s.genre || (s.tags ? (Array.isArray(s.tags) ? s.tags.join(', ') : s.tags) : 'Unknown'),
-        location: s.country_name || [s.country, s.state].filter(Boolean).join(', ') || 'Unknown',
-        description: s.description || `RapidAPI Radio World stream (ID: ${s.radio_id || s.id || 'N/A'})`,
-      }));
+      .filter((s: any) => s.streams && s.streams.length > 0)
+      .map((s: any) => {
+        // Find the best stream (prefer works: true and isHttps: true)
+        const bestStream = s.streams.find((st: any) => st.works && st.isHttps) ||
+                           s.streams.find((st: any) => st.works) ||
+                           s.streams.find((st: any) => st.isHttps) ||
+                           s.streams[0];
+
+        return {
+          name: s.name || 'Unknown Station',
+          url: bestStream ? bestStream.url : '',
+          genre: s.genre ? (s.genre.text || 'Unknown') : 'Unknown',
+          location: s.location ? (s.location.locationText || s.location.countryName || 'Unknown') : 'Unknown',
+          description: `RapidAPI 50K Radio stream (Bitrate: ${bestStream ? (bestStream.bitrate || 'N/A') : 'N/A'}kbps, Codec: ${bestStream ? (bestStream.codec || 'N/A') : 'N/A'})`,
+        };
+      })
+      .filter((s: any) => s.url);
   } catch (err: any) {
     console.warn(`[RapidAPI Search] Failed: ${err.message}`);
     return [];

@@ -243,8 +243,8 @@ function updateDiscoveredStations(stations) {
     return;
   }
 
-  // Map stations to coordinates
-  discoveredStationsData = stations.map(station => {
+  // Map incoming stations to coordinates and playing state
+  const newStationsMapped = stations.map(station => {
     const coords = getCoordinatesForLocation(station.location);
     return {
       ...station,
@@ -252,6 +252,19 @@ function updateDiscoveredStations(stations) {
       lng: coords ? coords[1] : 0,
       isPlaying: currentlyPlayingStation && currentlyPlayingStation.url === station.url
     };
+  });
+
+  // Append new unique stations (checking by URL)
+  newStationsMapped.forEach(newStation => {
+    const isDuplicate = discoveredStationsData.some(existing => existing.url === newStation.url);
+    if (!isDuplicate) {
+      discoveredStationsData.push(newStation);
+    }
+  });
+
+  // Keep the isPlaying flag updated for all stations in discoveredStationsData
+  discoveredStationsData.forEach(station => {
+    station.isPlaying = currentlyPlayingStation && currentlyPlayingStation.url === station.url;
   });
 
   stationsCount.textContent = `${discoveredStationsData.length} Station${discoveredStationsData.length > 1 ? 's' : ''}`;

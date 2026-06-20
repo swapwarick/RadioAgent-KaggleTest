@@ -124,7 +124,9 @@
 
             <!-- Player Controls -->
             <div class="player-controls">
-              <audio id="audio-element" crossorigin="anonymous"></audio>
+              <!-- Separate audio tags to support direct HTTPS streaming (unlimited duration) vs. proxied HTTP streaming -->
+              <audio id="audio-element-direct" crossorigin="anonymous"></audio>
+              <audio id="audio-element-proxied" crossorigin="anonymous"></audio>
 
               <button id="play-pause-btn" class="play-btn" disabled>
                 <!-- Play Icon -->

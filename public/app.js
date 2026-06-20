@@ -28,7 +28,9 @@ const sessionTag = document.getElementById('session-tag');
 
 
 // Player Elements
-const audioElement = document.getElementById('audio-element');
+const directAudioElement = document.getElementById('audio-element-direct');
+const proxiedAudioElement = document.getElementById('audio-element-proxied');
+let audioElement = directAudioElement;
 const playPauseBtn = document.getElementById('play-pause-btn');
 const playIcon = document.getElementById('play-icon');
 const pauseIcon = document.getElementById('pause-icon');
@@ -371,6 +373,19 @@ function tuneInStation(station) {
   playbackStatus.textContent = 'Connecting...';
   playPauseBtn.disabled = false;
 
+  // Direct play for HTTPS to avoid Vercel serverless 5-minute timeouts
+  const useProxy = !station.url.startsWith('https://');
+  const activeAudio = useProxy ? proxiedAudioElement : directAudioElement;
+  const inactiveAudio = useProxy ? directAudioElement : proxiedAudioElement;
+
+  // Stop the inactive one
+  inactiveAudio.pause();
+  inactiveAudio.src = '';
+  inactiveAudio.load();
+
+  // Switch references
+  audioElement = activeAudio;
+
   // Clean up any existing Hls.js instance
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -381,17 +396,20 @@ function tuneInStation(station) {
   const isHls = station.url.toLowerCase().includes('.m3u8') || 
                 (station.contentType && (station.contentType.toLowerCase().includes('mpegurl') || station.contentType.toLowerCase().includes('hls')));
 
+  const streamUrl = useProxy
+    ? (isHls ? `/api/stream.m3u8?url=${encodeURIComponent(station.url)}` : `/api/stream?url=${encodeURIComponent(station.url)}`)
+    : station.url;
+
   if (isHls && window.Hls && Hls.isSupported()) {
-    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
     hlsInstance = new Hls();
-    hlsInstance.loadSource(proxyUrl);
+    hlsInstance.loadSource(streamUrl);
     hlsInstance.attachMedia(audioElement);
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
       audioElement.play()
         .then(() => {
           playbackStatus.textContent = 'Playing';
           showPauseIcon();
-          setupAudioContext(); // Setup Web Audio API visualizer
+          if (useProxy) setupAudioContext(); // Setup Web Audio API visualizer only for proxy
           updateGlobePlayState(true);
         })
         .catch(err => {
@@ -411,14 +429,13 @@ function tuneInStation(station) {
     });
   } else if (isHls && audioElement.canPlayType('application/vnd.apple.mpegurl')) {
     // Native HLS support (Safari)
-    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
-    audioElement.src = proxyUrl;
+    audioElement.src = streamUrl;
     audioElement.load();
     audioElement.play()
       .then(() => {
         playbackStatus.textContent = 'Playing';
         showPauseIcon();
-        setupAudioContext(); // Setup Web Audio API visualizer
+        if (useProxy) setupAudioContext();
         updateGlobePlayState(true);
       })
       .catch(err => {
@@ -429,14 +446,13 @@ function tuneInStation(station) {
       });
   } else {
     // Normal audio stream (MP3, AAC, etc.)
-    const proxyUrl = `/api/stream?url=${encodeURIComponent(station.url)}`;
-    audioElement.src = proxyUrl;
+    audioElement.src = streamUrl;
     audioElement.load();
     audioElement.play()
       .then(() => {
         playbackStatus.textContent = 'Playing';
         showPauseIcon();
-        setupAudioContext(); // Setup Web Audio API visualizer
+        if (useProxy) setupAudioContext();
         updateGlobePlayState(true);
       })
       .catch(err => {
@@ -482,38 +498,53 @@ playPauseBtn.addEventListener('click', () => {
 });
 
 // Audio element state changes
-audioElement.addEventListener('waiting', () => {
-  playbackStatus.textContent = 'Buffering...';
-});
-audioElement.addEventListener('playing', () => {
-  playbackStatus.textContent = 'Playing';
-  showPauseIcon();
-  updateGlobePlayState(true);
-});
-audioElement.addEventListener('pause', () => {
-  playbackStatus.textContent = 'Paused';
-  showPlayIcon();
-  updateGlobePlayState(false);
-});
-audioElement.addEventListener('error', (e) => {
-  playbackStatus.textContent = 'Playback Error / Dead link';
-  showPlayIcon();
-  updateGlobePlayState(false);
-  console.error('Audio tag error event:', e);
-});
+function bindAudioListeners(el) {
+  el.addEventListener('waiting', () => {
+    if (el === audioElement) playbackStatus.textContent = 'Buffering...';
+  });
+  el.addEventListener('playing', () => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Playing';
+      showPauseIcon();
+      updateGlobePlayState(true);
+    }
+  });
+  el.addEventListener('pause', () => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Paused';
+      showPlayIcon();
+      updateGlobePlayState(false);
+    }
+  });
+  el.addEventListener('error', (e) => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Playback Error / Dead link';
+      showPlayIcon();
+      updateGlobePlayState(false);
+      console.error('Audio tag error event:', e);
+    }
+  });
+}
+
+bindAudioListeners(directAudioElement);
+bindAudioListeners(proxiedAudioElement);
 
 // Volume Control
 volumeSlider.addEventListener('input', (e) => {
   const vol = e.target.value / 100;
-  audioElement.volume = vol;
-  audioElement.muted = (vol === 0);
-  updateVolumeIcons(audioElement.muted);
+  directAudioElement.volume = vol;
+  proxiedAudioElement.volume = vol;
+  directAudioElement.muted = (vol === 0);
+  proxiedAudioElement.muted = (vol === 0);
+  updateVolumeIcons(directAudioElement.muted);
 });
 
 muteBtn.addEventListener('click', () => {
-  audioElement.muted = !audioElement.muted;
-  updateVolumeIcons(audioElement.muted);
-  if (audioElement.muted) {
+  const newMuted = !audioElement.muted;
+  directAudioElement.muted = newMuted;
+  proxiedAudioElement.muted = newMuted;
+  updateVolumeIcons(newMuted);
+  if (newMuted) {
     volumeSlider.value = 0;
   } else {
     volumeSlider.value = Math.round(audioElement.volume * 100);
@@ -552,14 +583,12 @@ function setupAudioContext() {
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
 
-    // Connect source. Note: CORS restrictions apply to createMediaElementSource
-    // If stream server doesn't allow CORS, browser blocks Web Audio processing.
-    // In that case, we fall back to simulated wave visualizer.
-    audioSource = audioContext.createMediaElementSource(audioElement);
+    // Connect proxied audio element permanently
+    audioSource = audioContext.createMediaElementSource(proxiedAudioElement);
     audioSource.connect(analyser);
     analyser.connect(audioContext.destination);
 
-    console.log('[Audio Visualizer] Web Audio API context connected.');
+    console.log('[Audio Visualizer] Web Audio API context connected to proxied element.');
   } catch (err) {
     console.warn('[Audio Visualizer] Failed to connect Web Audio API source due to CORS/Permissions. Falling back to simulation.');
   }
@@ -595,7 +624,7 @@ function drawVisualizer() {
 
   // Let's read actual frequency data if connected and CORS is ok
   let dataArray = null;
-  if (analyser && isPlaying) {
+  if (analyser && isPlaying && audioElement === proxiedAudioElement) {
     try {
       const bufferLength = analyser.frequencyBinCount;
       dataArray = new Uint8Array(bufferLength);

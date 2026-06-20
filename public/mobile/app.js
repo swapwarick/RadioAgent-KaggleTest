@@ -26,7 +26,9 @@ const traceLogs = document.getElementById('trace-logs');
 const suggestions = document.querySelectorAll('.chip');
 
 // Player Elements
-const audioElement = document.getElementById('audio-element');
+const directAudioElement = document.getElementById('audio-element-direct');
+const proxiedAudioElement = document.getElementById('audio-element-proxied');
+let audioElement = directAudioElement;
 const playPauseBtn = document.getElementById('play-pause-btn');
 const playIcon = document.getElementById('play-icon');
 const pauseIcon = document.getElementById('pause-icon');
@@ -431,6 +433,19 @@ function tuneInStation(station) {
   playbackStatus.textContent = 'Connecting...';
   playPauseBtn.disabled = false;
 
+  // Direct play for HTTPS to avoid Vercel serverless 5-minute timeouts
+  const useProxy = !station.url.startsWith('https://');
+  const activeAudio = useProxy ? proxiedAudioElement : directAudioElement;
+  const inactiveAudio = useProxy ? directAudioElement : proxiedAudioElement;
+
+  // Stop the inactive one
+  inactiveAudio.pause();
+  inactiveAudio.src = '';
+  inactiveAudio.load();
+
+  // Switch references
+  audioElement = activeAudio;
+
   // Cleanup existing HLS
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -451,17 +466,20 @@ function tuneInStation(station) {
   const isHls = station.url.toLowerCase().includes('.m3u8') || 
                 (station.contentType && (station.contentType.toLowerCase().includes('mpegurl') || station.contentType.toLowerCase().includes('hls')));
 
+  const streamUrl = useProxy
+    ? (isHls ? `/api/stream.m3u8?url=${encodeURIComponent(station.url)}` : `/api/stream?url=${encodeURIComponent(station.url)}`)
+    : station.url;
+
   if (isHls && window.Hls && Hls.isSupported()) {
-    const proxyUrl = `/api/stream.m3u8?url=${encodeURIComponent(station.url)}`;
     hlsInstance = new Hls();
-    hlsInstance.loadSource(proxyUrl);
+    hlsInstance.loadSource(streamUrl);
     hlsInstance.attachMedia(audioElement);
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
       audioElement.play()
         .then(() => {
           playbackStatus.textContent = 'Playing';
           showPauseIcon();
-          setupAudioContext();
+          if (useProxy) setupAudioContext(); // Setup visualizer only for proxy
           updateGlobePlayState(true);
         })
         .catch(err => {
@@ -480,14 +498,13 @@ function tuneInStation(station) {
     });
   } else {
     // Normal audio stream
-    const proxyUrl = `/api/stream?url=${encodeURIComponent(station.url)}`;
-    audioElement.src = proxyUrl;
+    audioElement.src = streamUrl;
     audioElement.load();
     audioElement.play()
       .then(() => {
         playbackStatus.textContent = 'Playing';
         showPauseIcon();
-        setupAudioContext();
+        if (useProxy) setupAudioContext();
         updateGlobePlayState(true);
       })
       .catch(err => {
@@ -521,37 +538,52 @@ playPauseBtn.addEventListener('click', () => {
 });
 
 // Audio listeners
-audioElement.addEventListener('waiting', () => {
-  playbackStatus.textContent = 'Buffering...';
-});
-audioElement.addEventListener('playing', () => {
-  playbackStatus.textContent = 'Playing';
-  showPauseIcon();
-  updateGlobePlayState(true);
-});
-audioElement.addEventListener('pause', () => {
-  playbackStatus.textContent = 'Paused';
-  showPlayIcon();
-  updateGlobePlayState(false);
-});
-audioElement.addEventListener('error', () => {
-  playbackStatus.textContent = 'Error';
-  showPlayIcon();
-  updateGlobePlayState(false);
-});
+function bindAudioListeners(el) {
+  el.addEventListener('waiting', () => {
+    if (el === audioElement) playbackStatus.textContent = 'Buffering...';
+  });
+  el.addEventListener('playing', () => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Playing';
+      showPauseIcon();
+      updateGlobePlayState(true);
+    }
+  });
+  el.addEventListener('pause', () => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Paused';
+      showPlayIcon();
+      updateGlobePlayState(false);
+    }
+  });
+  el.addEventListener('error', () => {
+    if (el === audioElement) {
+      playbackStatus.textContent = 'Error';
+      showPlayIcon();
+      updateGlobePlayState(false);
+    }
+  });
+}
+
+bindAudioListeners(directAudioElement);
+bindAudioListeners(proxiedAudioElement);
 
 // Volume setup
 volumeSlider.addEventListener('input', (e) => {
   const vol = e.target.value / 100;
-  audioElement.volume = vol;
-  audioElement.muted = (vol === 0);
-  updateVolumeIcons(audioElement.muted);
+  directAudioElement.volume = vol;
+  proxiedAudioElement.volume = vol;
+  directAudioElement.muted = (vol === 0);
+  proxiedAudioElement.muted = (vol === 0);
+  updateVolumeIcons(directAudioElement.muted);
 });
 
 muteBtn.addEventListener('click', () => {
-  audioElement.muted = !audioElement.muted;
-  updateVolumeIcons(audioElement.muted);
-  if (audioElement.muted) {
+  const newMuted = !audioElement.muted;
+  directAudioElement.muted = newMuted;
+  proxiedAudioElement.muted = newMuted;
+  updateVolumeIcons(newMuted);
+  if (newMuted) {
     volumeSlider.value = 0;
   } else {
     volumeSlider.value = Math.round(audioElement.volume * 100);
@@ -589,7 +621,8 @@ function setupAudioContext() {
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 128; // Smaller for mobile performance optimization
 
-    audioSource = audioContext.createMediaElementSource(audioElement);
+    // Connect proxied audio element permanently
+    audioSource = audioContext.createMediaElementSource(proxiedAudioElement);
     audioSource.connect(analyser);
     analyser.connect(audioContext.destination);
   } catch (err) {
@@ -619,7 +652,7 @@ function drawVisualizer() {
   const isPlaying = !audioElement.paused && !audioElement.muted && audioElement.readyState >= 2;
   let dataArray = null;
 
-  if (analyser && isPlaying) {
+  if (analyser && isPlaying && audioElement === proxiedAudioElement) {
     try {
       const bufferLength = analyser.frequencyBinCount;
       dataArray = new Uint8Array(bufferLength);

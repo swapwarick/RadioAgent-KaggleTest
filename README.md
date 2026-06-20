@@ -7,7 +7,7 @@ Welcome to the **World Radio Finder & Tuner Console**, a futuristic, AI-driven d
 ## ✨ Features
 
 - **🗺️ Interactive 3D WebGL Globe**: Rotating backdrop built with `Globe.GL` that represents the earth. Discovered radio stations are plotted onto their correct geocoded latitudes and longitudes as clickable marker rings. Clicking a station or card triggers a smooth camera orbit to focus the globe on that coordinate.
-- **🤖 Radio Finder Agent**: An AI assistant built using the **Google Agent Development Kit (ADK)**. You can ask it to find genres, artists, languages, or stations in specific cities/countries. Supported by Groq (`llama-3.3-70b-versatile`) with automatic fallback to Gemini (`gemini-2.5-flash`) on rate limits.
+- **🤖 Radio Finder Agent**: An AI assistant built using the **Google Agent Development Kit (ADK)**. You can ask it to find genres, artists, languages, or stations in specific cities/countries. Supported by Groq (`llama-3.3-70b-versatile`) and NVIDIA NIM (`meta/llama-3.3-70b-instruct`) with automatic fallback to Gemini (`gemini-2.5-flash`) on rate limits.
 - **📻 Live Audio Tuner**: Fully interactive player console styled with a modern glassmorphic theme. Features play, pause, mute, and a volume slider.
 - **🌊 HTML5 Canvas Visualizer**: Multi-layered sine-wave visualizer that performs real-time audio frequency analysis (via Web Audio API `AnalyserNode`) and falls back to smooth simulated wave motion if CORS policies restrict direct audio inspection.
 - **⚡ HLS (.m3u8) Playback Support**: Dynamic live stream support powered by `hls.js` to play HTTP Live Streaming feeds directly in the browser.
@@ -54,10 +54,11 @@ PORT=3000
 
 # Provide at least one of these API keys:
 GROQ_API_KEY=your_groq_api_key_here
+NVIDIA_API_KEY=your_nvidia_api_key_here
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-*Note: If both keys are provided, the system defaults to Groq and switches to Gemini automatically if rate limits are encountered.*
+*Note: The system supports an automatic fallback chain (Groq -> NVIDIA NIM -> Gemini) on rate limits, depending on which keys are configured.*
 
 ---
 

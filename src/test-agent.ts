@@ -1,5 +1,5 @@
 import { InMemoryRunner, toStructuredEvents, Gemini } from '@google/adk';
-import { worldRadioAgent, CustomGroqLlm } from './agent.js';
+import { worldRadioAgent, CustomGroqLlm, CustomNvidiaNimLlm } from './agent.js';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -7,12 +7,18 @@ dotenv.config();
 
 async function runTest() {
   const groqKey = process.env.GROQ_API_KEY;
+  const nvidiaKey = process.env.NVIDIA_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
 
   if (groqKey) {
     worldRadioAgent.model = new CustomGroqLlm({
       model: 'llama-3.3-70b-versatile',
       apiKey: groqKey,
+    });
+  } else if (nvidiaKey) {
+    worldRadioAgent.model = new CustomNvidiaNimLlm({
+      model: 'meta/llama-3.3-70b-instruct',
+      apiKey: nvidiaKey,
     });
   } else if (geminiKey) {
     worldRadioAgent.model = new Gemini({

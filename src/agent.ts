@@ -221,8 +221,118 @@ export class CustomGroqLlm extends BaseLlm {
   }
 }
 
-// Define Gemini LLM or Groq LLM
+export class CustomNvidiaNimLlm extends BaseLlm {
+  private apiKey: string;
+
+  constructor({ model, apiKey }: { model?: string; apiKey: string }) {
+    super({ model: model || 'meta/llama-3.3-70b-instruct' });
+    this.apiKey = apiKey;
+  }
+
+  async *generateContentAsync(
+    llmRequest: LlmRequest,
+    stream?: boolean,
+    abortSignal?: AbortSignal
+  ): AsyncGenerator<LlmResponse, void> {
+    const tools = mapGeminiToolsToOpenAi(llmRequest.config?.tools || []);
+    const messages = mapGeminiContentsToOpenAi(llmRequest.contents || []);
+
+    const systemInstruction = llmRequest.config?.systemInstruction as any;
+    if (systemInstruction) {
+      let systemText = '';
+      if (typeof systemInstruction === 'string') {
+        systemText = systemInstruction;
+      } else if (systemInstruction.parts && systemInstruction.parts[0]?.text) {
+        systemText = systemInstruction.parts[0].text;
+      }
+      if (systemText) {
+        messages.unshift({
+          role: 'system',
+          content: systemText,
+        });
+      }
+    }
+
+    const body: any = {
+      model: this.model,
+      messages: messages,
+      max_tokens: 2048,
+    };
+    if (tools.length > 0) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+      body.parallel_tool_calls = false;
+    }
+
+    try {
+      const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: abortSignal,
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`NVIDIA NIM API returned HTTP ${res.status}: ${errorText}`);
+      }
+
+      const data = await res.json();
+      const choice = data.choices?.[0];
+      const msg = choice?.message;
+
+      const parts: any[] = [];
+      if (msg?.content) {
+        parts.push({ text: msg.content });
+      }
+
+      if (msg?.tool_calls && msg.tool_calls.length > 0) {
+        for (const tc of msg.tool_calls) {
+          let parsedArgs = {};
+          try {
+            parsedArgs = JSON.parse(tc.function.arguments || '{}');
+          } catch (e) {
+            console.error('Failed to parse tool call arguments:', tc.function.arguments);
+          }
+          parts.push({
+            functionCall: {
+              name: tc.function.name,
+              args: parsedArgs,
+            },
+          });
+        }
+      }
+
+      const llmResponse: LlmResponse = {
+        content: {
+          role: 'model',
+          parts: parts,
+        },
+        finishReason: (choice?.finish_reason === 'tool_calls' ? 'STOP' : 'STOP') as any,
+        turnComplete: true,
+      };
+
+      yield llmResponse;
+    } catch (err: any) {
+      const errorResponse: LlmResponse = {
+        errorCode: 'NVIDIA_NIM_API_ERROR',
+        errorMessage: err.message,
+      };
+      yield errorResponse;
+    }
+  }
+
+  async connect(llmRequest: LlmRequest): Promise<any> {
+    throw new Error('Connect not supported for CustomNvidiaNimLlm');
+  }
+}
+
+// Define Gemini LLM, Groq LLM, or NVIDIA NIM LLM
 const groqApiKey = process.env.GROQ_API_KEY;
+const nvidiaApiKey = process.env.NVIDIA_API_KEY;
 const startupApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY || 'DUMMY_KEY_FOR_STARTUP';
 
 export const geminiLlm = groqApiKey
@@ -231,10 +341,15 @@ export const geminiLlm = groqApiKey
       model: 'llama-3.3-70b-versatile',
       apiKey: groqApiKey,
     })
-  : new Gemini({
-      model: 'gemini-2.5-flash',
-      apiKey: startupApiKey,
-    });
+  : (nvidiaApiKey
+      ? new CustomNvidiaNimLlm({
+          model: 'meta/llama-3.3-70b-instruct',
+          apiKey: nvidiaApiKey,
+        })
+      : new Gemini({
+          model: 'gemini-2.5-flash',
+          apiKey: startupApiKey,
+        }));
 
 // ==========================================
 // 1. UTILITY STREAM VERIFIER FUNCTION

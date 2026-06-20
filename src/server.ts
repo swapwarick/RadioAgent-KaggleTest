@@ -5,7 +5,7 @@ import http from 'http';
 import https from 'https';
 import { fileURLToPath } from 'url';
 import { InMemoryRunner, toStructuredEvents, Gemini } from '@google/adk';
-import { worldRadioAgent, CustomGroqLlm } from './agent.js';
+import { worldRadioAgent, CustomGroqLlm, CustomNvidiaNimLlm } from './agent.js';
 
 // Resolve directory paths for ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +25,12 @@ const runner = new InMemoryRunner({
 
 // GET /api/health - Server health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', groqConfigured: !!process.env.GROQ_API_KEY });
+  res.json({
+    status: 'ok',
+    groqConfigured: !!process.env.GROQ_API_KEY,
+    nvidiaConfigured: !!process.env.NVIDIA_API_KEY,
+    geminiConfigured: !!process.env.GEMINI_API_KEY || !!process.env.GOOGLE_GENAI_API_KEY
+  });
 });
 
 // GET /api/stream - Audio stream proxy (solves CORS + mixed-content for radio streams)
@@ -156,25 +161,35 @@ app.post('/api/chat', async (req, res) => {
   try {
     // Check key requirements before calling the LLM
     const groqKey = process.env.GROQ_API_KEY;
+    const nvidiaKey = process.env.NVIDIA_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
 
+    // Define the sequence of models to try
+    const modelAttempts: any[] = [];
     if (groqKey) {
-      // Dynamically update the agent's model to use the latest Groq API key
-      worldRadioAgent.model = new CustomGroqLlm({
-        model: 'llama-3.3-70b-versatile',
-        apiKey: groqKey,
+      modelAttempts.push({
+        name: 'Groq (llama-3.3-70b-versatile)',
+        setup: () => new CustomGroqLlm({ model: 'llama-3.3-70b-versatile', apiKey: groqKey }),
       });
-    } else if (geminiKey) {
-      // Dynamically update the agent's model to use the latest Gemini API key
-      worldRadioAgent.model = new Gemini({
-        model: 'gemini-2.5-flash',
-        apiKey: geminiKey,
+    }
+    if (nvidiaKey) {
+      modelAttempts.push({
+        name: 'NVIDIA NIM (meta/llama-3.3-70b-instruct)',
+        setup: () => new CustomNvidiaNimLlm({ model: 'meta/llama-3.3-70b-instruct', apiKey: nvidiaKey }),
       });
-    } else {
+    }
+    if (geminiKey) {
+      modelAttempts.push({
+        name: 'Gemini (gemini-2.5-flash)',
+        setup: () => new Gemini({ model: 'gemini-2.5-flash', apiKey: geminiKey }),
+      });
+    }
+
+    if (modelAttempts.length === 0) {
       // Stream an error to the frontend
       res.write(`data: ${JSON.stringify({
         type: 'error',
-        message: 'No LLM API key (GROQ_API_KEY or GEMINI_API_KEY) is configured. Please configure keys in your .env file or playground settings.',
+        message: 'No LLM API key (GROQ_API_KEY, NVIDIA_API_KEY, or GEMINI_API_KEY) is configured. Please configure keys in your .env file or playground settings.',
       })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
@@ -188,7 +203,12 @@ app.post('/api/chat', async (req, res) => {
       sessionId: sId,
     });
 
-    const runSession = async (useGeminiFallback: boolean) => {
+    let attemptIndex = 0;
+
+    const runSession = async () => {
+      const currentAttempt = modelAttempts[attemptIndex];
+      worldRadioAgent.model = currentAttempt.setup();
+
       const eventGenerator = runner.runAsync({
         userId: uId,
         sessionId: sId,
@@ -207,7 +227,11 @@ app.post('/api/chat', async (req, res) => {
         for (const structEv of structuredEvents) {
           if (structEv.type === 'error') {
             const errMsg = structEv.error instanceof Error ? structEv.error.message : String(structEv.error);
-            if (useGeminiFallback && geminiKey && (errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('limit reached'))) {
+            const isRateLimit = errMsg.includes('429') || 
+                                errMsg.toLowerCase().includes('rate limit') || 
+                                errMsg.toLowerCase().includes('limit reached');
+
+            if (isRateLimit && attemptIndex + 1 < modelAttempts.length) {
               hitRateLimit = true;
               break;
             }
@@ -220,24 +244,20 @@ app.post('/api/chat', async (req, res) => {
       }
 
       if (hitRateLimit) {
-        console.log('[Server] Groq rate limit hit. Falling back to Gemini.');
+        attemptIndex++;
+        const nextAttempt = modelAttempts[attemptIndex];
+        console.log(`[Server] ${currentAttempt.name} rate limit hit. Falling back to ${nextAttempt.name}.`);
         res.write(`data: ${JSON.stringify({
           type: 'thought',
-          content: 'Groq API rate limit reached (429). Automatically switching models to Gemini (gemini-2.5-flash) and retrying query...',
+          content: `${currentAttempt.name} rate limit reached. Automatically switching models to ${nextAttempt.name} and retrying query...`,
         })}\n\n`);
 
-        // Re-assign the agent model to Gemini
-        worldRadioAgent.model = new Gemini({
-          model: 'gemini-2.5-flash',
-          apiKey: geminiKey!,
-        });
-
-        // Retry the session once with fallback disabled
-        await runSession(false);
+        // Retry the session with the next model
+        await runSession();
       }
     };
 
-    await runSession(true);
+    await runSession();
 
     // Indicate completion
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);

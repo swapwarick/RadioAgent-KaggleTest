@@ -434,18 +434,8 @@ async function verifyAudioStreamHelper(url: string): Promise<{ url: string; stat
   }
 }
 
-/**
- * Searches for radio stations using the RapidAPI 50K Radio Stations API.
- * Uses the RAPIDAPI_KEY from environment variables.
- */
-async function rapidapiSearch(query: string): Promise<any[]> {
-  const apiKey = process.env.RAPIDAPI_KEY;
-  if (!apiKey) {
-    console.log('[RapidAPI Search] RAPIDAPI_KEY not found in environment.');
-    return [];
-  }
-
-  const endpoint = `https://50k-radio-stations.p.rapidapi.com/radios?name=${encodeURIComponent(query)}&limit=10`;
+async function fetchFromRapidApi(nameQuery: string, apiKey: string): Promise<any[]> {
+  const endpoint = `https://50k-radio-stations.p.rapidapi.com/radios?name=${encodeURIComponent(nameQuery)}&limit=10`;
   console.log(`[RapidAPI Search] Querying: ${endpoint}`);
 
   try {
@@ -477,7 +467,6 @@ async function rapidapiSearch(query: string): Promise<any[]> {
     }
 
     if (stationsData.length === 0) {
-      console.log('[RapidAPI Search] No stations found in RapidAPI response structure.');
       return [];
     }
 
@@ -503,6 +492,45 @@ async function rapidapiSearch(query: string): Promise<any[]> {
     console.warn(`[RapidAPI Search] Failed: ${err.message}`);
     return [];
   }
+}
+
+/**
+ * Searches for radio stations using the RapidAPI 50K Radio Stations API.
+ * Uses the RAPIDAPI_KEY from environment variables.
+ */
+async function rapidapiSearch(query: string): Promise<any[]> {
+  const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    console.log('[RapidAPI Search] RAPIDAPI_KEY not found in environment.');
+    return [];
+  }
+
+  // Helper to clean a query string by removing common search filler words
+  const cleanQuery = (q: string): string => {
+    return q
+      .replace(/\b(radio|station|stations|channel|channels|music|fm|am|find|search|play|in|from|for|the|a|an)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const cleaned = cleanQuery(query);
+  console.log(`[RapidAPI Search] Sanitized raw query "${query}" to "${cleaned}"`);
+  
+  if (!cleaned) {
+    return [];
+  }
+
+  // Try the full cleaned query first
+  let stations = await fetchFromRapidApi(cleaned, apiKey);
+
+  // If no results and the query has multiple words, try fallback with the first word (e.g. "Dance DJ" -> "Dance")
+  if (stations.length === 0 && cleaned.includes(' ')) {
+    const firstWord = cleaned.split(' ')[0];
+    console.log(`[RapidAPI Search] Cleaned query "${cleaned}" returned zero results. Retrying fallback query with first keyword: "${firstWord}"`);
+    stations = await fetchFromRapidApi(firstWord, apiKey);
+  }
+
+  return stations;
 }
 
 // ==========================================

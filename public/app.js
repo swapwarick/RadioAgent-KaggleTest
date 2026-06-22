@@ -277,11 +277,17 @@ function updateDiscoveredStations(stations) {
     card.className = `station-card-item${station.isPlaying ? ' active-playing' : ''}`;
     card.dataset.url = station.url;
 
+    const isHttps = station.url.startsWith('https://');
+    const badgeHtml = isHttps
+      ? `<span class="badge status-direct" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); text-shadow: none;" title="Streams directly to your browser (0 serverless usage)">Direct Play</span>`
+      : `<span class="badge status-proxied" style="background: rgba(241, 196, 15, 0.2); color: #f1c40f; border: 1px solid rgba(241, 196, 15, 0.3); text-shadow: none;" title="Proxied through Vercel serverless functions">Proxied</span>`;
+
     card.innerHTML = `
       <div class="station-card-info">
         <div class="station-card-name" title="${escapeHTML(station.name)}">${escapeHTML(station.name)}</div>
         <div class="station-card-meta">
           <span class="badge">${escapeHTML(station.genre)}</span>
+          ${badgeHtml}
           <span class="location" title="${escapeHTML(station.location)}">${escapeHTML(station.location)}</span>
         </div>
       </div>
@@ -380,7 +386,13 @@ function tuneInStation(station) {
   currentStationName.textContent = station.name;
   currentStationGenre.textContent = station.genre;
   currentStationLocation.textContent = station.location;
-  currentStreamInfo.textContent = `Format: ${station.contentType || 'unknown'} | URL: ${station.url.substring(0, 45)}...`;
+  
+  const isHttps = station.url.startsWith('https://');
+  const badgeHtml = isHttps
+    ? `<span class="badge status-direct" style="background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); font-size: 0.72rem; padding: 2px 6px; margin-left: 8px; border-radius: 4px; font-weight: 500; text-shadow: none;" title="Streams directly to your browser (0 serverless usage)">Direct Play</span>`
+    : `<span class="badge status-proxied" style="background: rgba(241, 196, 15, 0.2); color: #f1c40f; border: 1px solid rgba(241, 196, 15, 0.3); font-size: 0.72rem; padding: 2px 6px; margin-left: 8px; border-radius: 4px; font-weight: 500; text-shadow: none;" title="Proxied through Vercel serverless functions">Proxied Stream</span>`;
+
+  currentStreamInfo.innerHTML = `Format: ${station.contentType || 'unknown'} | URL: ${station.url.substring(0, 45)}... ${badgeHtml}`;
 
   playbackStatus.textContent = 'Connecting...';
   playPauseBtn.disabled = false;

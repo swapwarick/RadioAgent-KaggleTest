@@ -355,8 +355,8 @@ export const geminiLlm = groqApiKey
 // 1. UTILITY STREAM VERIFIER FUNCTION
 // ==========================================
 
-// Audio Stream Verification helper
-async function verifyAudioStreamHelper(url: string): Promise<{ url: string; status: string; contentType: string; playable: boolean; message: string }> {
+// Inner helper to verify a single URL (either HTTP or HTTPS)
+async function verifySingleUrl(url: string): Promise<{ status: string; contentType: string; playable: boolean; message: string }> {
   try {
     // 1. Try HEAD request first (quick, does not download body)
     let response = await fetch(url, {
@@ -394,7 +394,6 @@ async function verifyAudioStreamHelper(url: string): Promise<{ url: string; stat
     const playable = isPlayable && response.ok;
 
     return {
-      url,
       status: `HTTP ${status}`,
       contentType,
       playable,
@@ -416,14 +415,48 @@ async function verifyAudioStreamHelper(url: string): Promise<{ url: string; stat
     const isDemoMock = mockStreams.some(s => url.toLowerCase().includes(s));
     if (isDemoMock) {
       return {
-        url,
         status: 'HTTP 200 (Mocked)',
         contentType: 'audio/mpeg',
         playable: true,
         message: 'Stream verified: Reachable and playable (Fallback Mock).',
       };
     }
+    throw err;
+  }
+}
 
+// Audio Stream Verification helper
+async function verifyAudioStreamHelper(url: string): Promise<{ url: string; status: string; contentType: string; playable: boolean; message: string }> {
+  // If url is HTTP, try to upgrade it to HTTPS first to bypass Vercel serverless proxy
+  if (url.startsWith('http://')) {
+    const httpsUrl = url.replace(/^http:\/\//i, 'https://');
+    try {
+      const verifHttps = await verifySingleUrl(httpsUrl);
+      if (verifHttps.playable) {
+        console.log(`[Stream Verifier] Successfully upgraded stream to HTTPS: ${httpsUrl}`);
+        return {
+          url: httpsUrl,
+          status: verifHttps.status,
+          contentType: verifHttps.contentType,
+          playable: verifHttps.playable,
+          message: `Stream upgraded to HTTPS: ${verifHttps.message}`,
+        };
+      }
+    } catch (e: any) {
+      console.log(`[Stream Verifier] HTTPS upgrade failed for ${httpsUrl}: ${e.message}. Falling back to HTTP.`);
+    }
+  }
+
+  try {
+    const verif = await verifySingleUrl(url);
+    return {
+      url,
+      status: verif.status,
+      contentType: verif.contentType,
+      playable: verif.playable,
+      message: verif.message,
+    };
+  } catch (err: any) {
     return {
       url,
       status: 'Unreachable',
@@ -828,7 +861,12 @@ export const searchAndTuneTool = new FunctionTool({
         urlsToVerify.map((url: string) => verifyAudioStreamHelper(url))
       );
       verifiedStations = verificationResults.map((verif: any) => {
-        const matchingStation = stationsToVerify.find((s: any) => s.url === verif.url) || {};
+        // Compare URLs ignoring protocol (http vs https) since we might have upgraded it
+        const matchingStation = stationsToVerify.find((s: any) => {
+          const normA = s.url.replace(/^https?:\/\//i, '');
+          const normB = verif.url.replace(/^https?:\/\//i, '');
+          return normA === normB;
+        }) || {};
         return {
           name: (matchingStation as any).name || 'Unknown Station',
           url: verif.url,
@@ -843,7 +881,13 @@ export const searchAndTuneTool = new FunctionTool({
       });
     }
     const playable = verifiedStations.filter((s: any) => s.playable);
-    console.log(`[Combined Radio Tool] Done. ${playable.length}/${verifiedStations.length} stations playable.`);
+    // Sort playable stations: HTTPS first, HTTP second to prioritize direct playback
+    playable.sort((a: any, b: any) => {
+      const aIsHttps = a.url.startsWith('https://') ? 1 : 0;
+      const bIsHttps = b.url.startsWith('https://') ? 1 : 0;
+      return bIsHttps - aIsHttps;
+    });
+    console.log(`[Combined Radio Tool] Done. ${playable.length}/${verifiedStations.length} stations playable. Prioritized HTTPS.`);
 
     return {
       query,

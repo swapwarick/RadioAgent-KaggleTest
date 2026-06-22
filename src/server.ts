@@ -33,6 +33,22 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// GET /api/countries - Proxy for REST Countries API to solve CORS issues
+app.get('/api/countries', async (req, res) => {
+  try {
+    const response = await fetch('https://raw.githubusercontent.com/mledoze/countries/master/dist/countries.json', {
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json(data);
+  } catch (err: any) {
+    console.warn('[Server] Failed to fetch countries from CDN dataset:', err.message);
+    res.status(502).json({ error: 'Failed to fetch countries data' });
+  }
+});
+
 // GET /api/stream - Audio stream proxy (solves CORS + mixed-content for radio streams)
 // Usage: /api/stream?url=https://tsfjazz.ice.infomaniak.ch/tsfjazz-high.mp3
 // Helper to rewrite relative paths inside .m3u8 files to route through our proxy

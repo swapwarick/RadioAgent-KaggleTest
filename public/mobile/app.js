@@ -378,6 +378,12 @@ function updateDiscoveredStations(stations) {
   if (globeInstance) {
     globeInstance.pointsData(discoveredStationsData);
   }
+
+  try {
+    localStorage.setItem('discovered_stations', JSON.stringify(discoveredStationsData));
+  } catch (e) {
+    console.warn('[Storage] localstorage write denied:', e);
+  }
 }
 
 // Sanitizers and Markdown Parsers
@@ -420,6 +426,12 @@ function parseSimpleMarkdown(md) {
 
 function tuneInStation(station) {
   currentlyPlayingStation = station;
+
+  try {
+    localStorage.setItem('last_tuned_station', JSON.stringify(station));
+  } catch (e) {
+    console.warn('[Storage] localstorage write denied:', e);
+  }
 
   const randFreq = (Math.random() * (107.9 - 87.5) + 87.5).toFixed(1);
   tunerFrequency.textContent = `${randFreq} MHz`;
@@ -576,6 +588,12 @@ volumeSlider.addEventListener('input', (e) => {
   directAudioElement.muted = (vol === 0);
   proxiedAudioElement.muted = (vol === 0);
   updateVolumeIcons(directAudioElement.muted);
+
+  try {
+    localStorage.setItem('tuner_volume', e.target.value);
+  } catch (err) {
+    console.warn('[Storage] localstorage write denied:', err);
+  }
 });
 
 muteBtn.addEventListener('click', () => {
@@ -771,7 +789,7 @@ async function loadCountryCoords() {
   }
   countryCoordsMap = { ...fallbackCountryCoords };
   try {
-    const res = await fetch('https://restcountries.com/v3.1/all');
+    const res = await fetch('/api/countries');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (Array.isArray(data)) {
@@ -896,8 +914,80 @@ function updateGlobePlayState(isPlaying) {
   }
 }
 
+// Function to load cached state
+function loadCachedState() {
+  // Load volume
+  try {
+    const savedVolume = localStorage.getItem('tuner_volume');
+    if (savedVolume !== null) {
+      const vol = parseFloat(savedVolume);
+      volumeSlider.value = vol;
+      directAudioElement.volume = vol / 100;
+      proxiedAudioElement.volume = vol / 100;
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to load volume:', err);
+  }
+
+  // Load discovered stations
+  try {
+    const savedStations = localStorage.getItem('discovered_stations');
+    if (savedStations) {
+      const stations = JSON.parse(savedStations);
+      if (Array.isArray(stations) && stations.length > 0) {
+        updateDiscoveredStations(stations);
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to load discovered stations:', err);
+  }
+
+  // Load last tuned station (without autoplay)
+  try {
+    const savedStation = localStorage.getItem('last_tuned_station');
+    if (savedStation) {
+      const station = JSON.parse(savedStation);
+      currentlyPlayingStation = station;
+      currentStationName.textContent = station.name;
+      currentStationGenre.textContent = station.genre;
+      currentStationLocation.textContent = station.location;
+      currentStreamInfo.textContent = `Format: ${station.contentType || 'unknown'} | URL: ${station.url.substring(0, 35)}...`;
+      playbackStatus.textContent = 'Paused';
+      playPauseBtn.disabled = false;
+      
+      const randFreq = (Math.random() * (107.9 - 87.5) + 87.5).toFixed(1);
+      tunerFrequency.textContent = `${randFreq} MHz`;
+
+      const useProxy = !station.url.startsWith('https://');
+      audioElement = useProxy ? proxiedAudioElement : directAudioElement;
+      
+      const isHls = station.url.toLowerCase().includes('.m3u8') || 
+                    (station.contentType && (station.contentType.toLowerCase().includes('mpegurl') || station.contentType.toLowerCase().includes('hls')));
+      
+      const streamUrl = useProxy
+        ? (isHls ? `/api/stream.m3u8?url=${encodeURIComponent(station.url)}` : `/api/stream?url=${encodeURIComponent(station.url)}`)
+        : station.url;
+        
+      if (isHls && window.Hls && Hls.isSupported()) {
+        hlsInstance = new Hls();
+        hlsInstance.loadSource(streamUrl);
+        hlsInstance.attachMedia(audioElement);
+      } else {
+        audioElement.src = streamUrl;
+        audioElement.load();
+      }
+
+      // Highlight active in list & rings on globe
+      updateGlobePlayState(false);
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to load last tuned station:', err);
+  }
+}
+
 // Initializer
 (async function initApp() {
   await loadCountryCoords();
   initGlobe();
+  loadCachedState();
 })();

@@ -4,7 +4,7 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import { fileURLToPath } from 'url';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 import { InMemoryRunner, toStructuredEvents, Gemini, type Event } from '@google/adk';
 import { worldRadioAgent, CustomGroqLlm, CustomNvidiaNimLlm } from './agent.js';
 
@@ -28,7 +28,7 @@ const chatLimiter = rateLimit({
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   message: { error: 'Too many requests. Please wait a moment before sending another message.' },
-  keyGenerator: (req) => ipKeyGenerator(req.ip ?? ''), // handles IPv4/IPv6 correctly
+  keyGenerator: (req: express.Request) => ipKeyGenerator(req.ip ?? ''), // handles IPv4/IPv6 correctly
 });
 
 // ==========================================

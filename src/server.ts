@@ -4,7 +4,8 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import { fileURLToPath } from 'url';
-import { InMemoryRunner, toStructuredEvents, Gemini } from '@google/adk';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { InMemoryRunner, toStructuredEvents, Gemini, type Event } from '@google/adk';
 import { worldRadioAgent, CustomGroqLlm, CustomNvidiaNimLlm } from './agent.js';
 
 // Resolve directory paths for ESM
@@ -14,8 +15,49 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '16kb' })); // cap body size
 app.use(express.static(path.join(__dirname, '../public')));
+
+// ==========================================
+// RATE LIMITER — /api/chat
+// 30 requests per minute per IP
+// ==========================================
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,          // 1 minute window
+  max: 30,                       // max 30 requests per IP
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please wait a moment before sending another message.' },
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? ''), // handles IPv4/IPv6 correctly
+});
+
+// ==========================================
+// TOPIC GUARD — Radio-only query classifier
+// Rejects off-topic messages before they
+// reach the LLM, saving API credits.
+// ==========================================
+const RADIO_KEYWORDS = [
+  // Core radio/music
+  'radio', 'station', 'stream', 'music', 'listen', 'tune', 'play', 'channel',
+  'song', 'track', 'album', 'artist', 'band', 'fm', 'am', 'broadcast',
+  // Genres
+  'jazz', 'rock', 'pop', 'hip hop', 'hiphop', 'hip-hop', 'classical', 'country',
+  'electronic', 'edm', 'techno', 'house', 'ambient', 'chill', 'lofi', 'lo-fi',
+  'reggae', 'metal', 'punk', 'folk', 'blues', 'soul', 'r&b', 'rnb', 'kpop',
+  'k-pop', 'jpop', 'j-pop', 'bollywood', 'hindi', 'latin', 'salsa', 'indie',
+  'alternative', 'dance', 'news', 'talk', 'sports', 'comedy',
+  // Locations (common radio searches)
+  'india', 'usa', 'uk', 'france', 'germany', 'japan', 'korea', 'brazil',
+  'paris', 'london', 'berlin', 'tokyo', 'new york', 'mumbai',
+  // Action words
+  'find', 'search', 'discover', 'recommend', 'suggest', 'show', 'get',
+  'what', 'which', 'where', 'how',
+];
+
+function isRadioQuery(message: string): boolean {
+  const lower = message.toLowerCase();
+  return RADIO_KEYWORDS.some(kw => lower.includes(kw));
+}
 
 // Initialize ADK Runner with the root agent
 const runner = new InMemoryRunner({
@@ -86,6 +128,18 @@ app.get(['/api/stream', '/api/stream.m3u8'], (req, res) => {
     return res.status(400).send('Invalid URL');
   }
 
+  // SSRF protection: enforce protocol allowlist
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    return res.status(400).send('Invalid protocol — only http and https are allowed');
+  }
+  // SSRF: block all private/internal/loopback ranges and non-http(s) protocols.
+  // Covers: localhost, 127.x, 0.0.0.0, RFC-1918 (10.x, 172.16-31.x, 192.168.x),
+  //         link-local / AWS metadata (169.254.x), and IPv6 loopback/link-local.
+  const PRIVATE_IP = /^(localhost$|127\.|0\.0\.0\.0$|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|\[|::1$|::$|fd[0-9a-f]{2}:)/i;
+  if (PRIVATE_IP.test(parsedUrl.hostname)) {
+    return res.status(403).send('Forbidden: Private or internal URLs are not allowed');
+  }
+
   const lib = parsedUrl.protocol === 'https:' ? https : http;
   const options = {
     hostname: parsedUrl.hostname,
@@ -98,11 +152,30 @@ app.get(['/api/stream', '/api/stream.m3u8'], (req, res) => {
     },
   };
 
+  let redirectCount = 0;
   const handleResponse = (proxyRes: http.IncomingMessage, originalUrl: string) => {
-    // Follow a single redirect recursively
-    if ((proxyRes.statusCode === 301 || proxyRes.statusCode === 302) && proxyRes.headers.location) {
+    // Follow redirects (max 3 hops to prevent redirect loops)
+    if ((proxyRes.statusCode === 301 || proxyRes.statusCode === 302 || proxyRes.statusCode === 307 || proxyRes.statusCode === 308) && proxyRes.headers.location) {
+      if (redirectCount >= 3) {
+        proxyRes.resume();
+        if (!res.headersSent) res.status(502).send('Too many redirects');
+        return;
+      }
+      redirectCount++;
       proxyRes.resume();
-      const redirected = new URL(proxyRes.headers.location, originalUrl);
+      let redirected: URL;
+      try {
+        redirected = new URL(proxyRes.headers.location, originalUrl);
+      } catch {
+        if (!res.headersSent) res.status(502).send('Invalid redirect URL');
+        return;
+      }
+      // Re-check SSRF on redirect target
+      const PRIVATE_IP2 = /^(localhost$|127\.|0\.0\.0\.0$|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|\[|::1$)/;
+      if (PRIVATE_IP2.test(redirected.hostname) || !['http:', 'https:'].includes(redirected.protocol)) {
+        if (!res.headersSent) res.status(403).send('Forbidden: Redirect to private URL blocked');
+        return;
+      }
       const lib2 = redirected.protocol === 'https:' ? https : http;
       const req2 = lib2.get(redirected.href, { headers: options.headers }, (res2) => {
         handleResponse(res2, redirected.href);
@@ -154,11 +227,69 @@ app.get(['/api/stream', '/api/stream.m3u8'], (req, res) => {
 });
 
 // POST /api/chat - SSE Stream Chat Endpoint
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
   const { message, sessionId } = req.body;
 
-  if (!message) {
+  // ── Input Sanitization ─────────────────────────────────────────────────────
+  // 1. Type + presence check
+  if (!message || typeof message !== 'string') {
     return res.status(400).json({ error: 'Message is required.' });
+  }
+
+  // 2. Hard length cap (before any processing — guards against memory pressure)
+  if (message.length > 4000) {
+    return res.status(400).json({ error: 'Message too long. Maximum 4000 characters allowed.' });
+  }
+
+  // 3. Strip null bytes and non-printable C0/C1 control characters that could
+  //    poison server logs, confuse LLM tokenizers, or bypass topic filtering.
+  //    Preserves: printable ASCII, Unicode letters/emoji, tab (\t), newline (\n), CR (\r)
+  let sanitizedMessage = message
+    .replace(/\x00/g, '')                                  // null bytes
+    .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')    // C0 control chars (keep \t \n \r)
+    .replace(/[\x80-\x9F]/g, '');                          // C1 control chars
+
+  // 4. Collapse excessive whitespace runs (prevents padding/stuffing attacks)
+  //    e.g. 500 spaces + "jazz" → "jazz"
+  sanitizedMessage = sanitizedMessage
+    .replace(/[ \t]{50,}/g, ' ')     // collapse long horizontal whitespace runs
+    .replace(/\n{5,}/g, '\n\n')      // cap consecutive newlines at 2
+    .trim();
+
+  // 5. Minimum length after sanitization (reject blank/whitespace-only inputs)
+  if (sanitizedMessage.length < 2) {
+    return res.status(400).json({ error: 'Message is too short or empty after sanitization.' });
+  }
+
+  // 6. Sanitize sessionId — allow only safe alphanumeric/dash/underscore chars,
+  //    cap at 64 chars. Falls back to 'default-session' if invalid/missing.
+  const rawSessionId = typeof sessionId === 'string' ? sessionId : '';
+  const sanitizedSessionId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawSessionId)
+    ? rawSessionId
+    : 'default-session';
+
+  // ── Topic Guard ────────────────────────────────────────────────────────────
+  // Reject off-topic queries before they consume any LLM API credits.
+  if (!isRadioQuery(sanitizedMessage)) {
+    console.log(`[Topic Guard] Rejected off-topic query: "${sanitizedMessage.substring(0, 80)}"`);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    const refusalMsg = [
+      "I'm the **World Radio Finder & Tuner** 📻 — I can only help you discover and stream internet radio stations.",
+      "",
+      "Try asking me something like:",
+      "- *\"Find jazz stations from Paris\"*",
+      "- *\"Play classic rock USA\"*",
+      "- *\"Hindi Bollywood radio\"*",
+      "- *\"K-Pop stations from Korea\"*",
+    ].join('\n');
+    res.write(`data: ${JSON.stringify({ type: 'content', author: 'world_radio_finding_agent', content: refusalMsg })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.end();
+    return;
   }
 
   // Set headers for Server-Sent Events (SSE)
@@ -170,9 +301,9 @@ app.post('/api/chat', async (req, res) => {
   });
 
   const uId = 'playground-user';
-  const sId = sessionId || 'default-session';
+  const sId = sanitizedSessionId;
 
-  console.log(`[Server] Chat request - Session: ${sId}, Msg: "${message}"`);
+  console.log(`[Server] Chat request - Session: ${sId}, Msg: "${sanitizedMessage.substring(0, 120)}"`);
 
   try {
     // Check key requirements before calling the LLM
@@ -230,7 +361,7 @@ app.post('/api/chat', async (req, res) => {
         sessionId: sId,
         newMessage: {
           role: 'user',
-          parts: [{ text: message }],
+          parts: [{ text: sanitizedMessage }],
         },
       });
 
@@ -238,10 +369,11 @@ app.post('/api/chat', async (req, res) => {
 
       for await (const rawEvent of eventGenerator) {
         const author = rawEvent.author || 'system';
-        const structuredEvents = toStructuredEvents(rawEvent);
+        const structuredEvents = toStructuredEvents(rawEvent as Event);
 
         for (const structEv of structuredEvents) {
           if (structEv.type === 'error') {
+            // In ADK 1.x, structEv.error is an Error object
             const errMsg = structEv.error instanceof Error ? structEv.error.message : String(structEv.error);
             const isRateLimit = errMsg.includes('429') || 
                                 errMsg.toLowerCase().includes('rate limit') || 
@@ -251,7 +383,11 @@ app.post('/api/chat', async (req, res) => {
               hitRateLimit = true;
               break;
             }
-            res.write(`data: ${JSON.stringify({ author, ...structEv, message: errMsg })}\n\n`);
+            // Send error to frontend in the expected shape
+            res.write(`data: ${JSON.stringify({ author, type: 'error', message: errMsg })}\n\n`);
+          } else if (structEv.type === 'finished') {
+            // ADK 1.x emits a 'finished' event at the end — we treat it as a no-op here
+            // because we send our own 'done' event after the loop
           } else {
             res.write(`data: ${JSON.stringify({ author, ...structEv })}\n\n`);
           }

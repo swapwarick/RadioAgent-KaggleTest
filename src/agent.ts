@@ -632,16 +632,6 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
     rbParams.set('name', query);
   }
 
-  // Try RapidAPI Radio World search first if a key is configured
-  if (process.env.RAPIDAPI_KEY) {
-    const rapidapiStations = await rapidapiSearch(query);
-    if (rapidapiStations && rapidapiStations.length > 0) {
-      console.log(`[Radio Finder] Found ${rapidapiStations.length} stations via RapidAPI.`);
-      return { stations: rapidapiStations, fallbackStations: curatedFallback };
-    }
-    console.log('[Radio Finder] RapidAPI returned no results or failed. Falling back to Radio Browser...');
-  }
-
   // Try Radio Browser API — free public database of 30,000+ real Icecast/Shoutcast streams
   // Multiple mirror servers for reliability
   const mirrors = [
@@ -650,6 +640,7 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
     'https://fr1.api.radio-browser.info',
   ];
 
+  let radioBrowserFound = false;
   for (const mirror of mirrors) {
     try {
       const endpoint = `${mirror}/json/stations/search?${rbParams.toString()}`;
@@ -683,16 +674,26 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
         return { stations, fallbackStations: curatedFallback };
       }
 
-      // No results — try next mirror or fall through to curated
+      // No results — try next mirror
       console.log(`[Radio Browser] No results from ${mirror}, trying next...`);
     } catch (err: any) {
       console.warn(`[Radio Browser] ${mirror} failed: ${err.message}`);
     }
   }
 
-  // All mirrors failed or no results — use curated stations
-  console.log(`[Radio Browser] All mirrors failed or returned no results. Using curated fallback stations.`);
-  return { stations: curatedFallback, fallbackStations: curatedFallback, warning: 'Using curated station list (Radio Browser unavailable).' };
+  // Fallback to RapidAPI Radio World search if Radio Browser fails or returns no results
+  if (process.env.RAPIDAPI_KEY) {
+    console.log('[Radio Finder] Radio Browser returned no results or failed. Trying RapidAPI...');
+    const rapidapiStations = await rapidapiSearch(query);
+    if (rapidapiStations && rapidapiStations.length > 0) {
+      console.log(`[Radio Finder] Found ${rapidapiStations.length} stations via RapidAPI.`);
+      return { stations: rapidapiStations, fallbackStations: curatedFallback };
+    }
+  }
+
+  // All search sources failed or returned no results — use curated fallback stations
+  console.log(`[Radio Finder] All search sources failed or returned no results. Using curated fallback stations.`);
+  return { stations: curatedFallback, fallbackStations: curatedFallback, warning: 'Using curated station list (Radio Browser & RapidAPI unavailable).' };
 }
 
 /**

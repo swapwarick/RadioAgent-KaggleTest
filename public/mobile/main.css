@@ -302,12 +302,20 @@ html, body {
 }
 .chip.chip-rock:active, .chip.chip-rock:hover { border-color: #ff453a; box-shadow: 0 0 10px rgba(255, 69, 58, 0.35); color: #ff453a; }
 .chip.chip-punk:active, .chip.chip-punk:hover { border-color: #bf5af2; box-shadow: 0 0 10px rgba(191, 90, 242, 0.35); color: #bf5af2; }
+.chip.chip-metal:active, .chip.chip-metal:hover { border-color: #ff3b30; box-shadow: 0 0 10px rgba(255, 59, 48, 0.35); color: #ff3b30; }
 .chip.chip-alt:active, .chip.chip-alt:hover { border-color: #5ac8fa; box-shadow: 0 0 10px rgba(90, 200, 250, 0.35); color: #5ac8fa; }
 .chip.chip-pop:active, .chip.chip-pop:hover { border-color: #ff375f; box-shadow: 0 0 10px rgba(255, 55, 95, 0.35); color: #ff375f; }
+.chip.chip-kpop:active, .chip.chip-kpop:hover { border-color: #ff6bdf; box-shadow: 0 0 10px rgba(255, 107, 223, 0.35); color: #ff6bdf; }
+.chip.chip-jpop:active, .chip.chip-jpop:hover { border-color: #ff2d55; box-shadow: 0 0 10px rgba(255, 45, 85, 0.35); color: #ff2d55; }
+.chip.chip-hiphop:active, .chip.chip-hiphop:hover { border-color: #af52de; box-shadow: 0 0 10px rgba(175, 82, 222, 0.35); color: #af52de; }
 .chip.chip-dance:active, .chip.chip-dance:hover { border-color: #0a84ff; box-shadow: 0 0 10px rgba(10, 132, 255, 0.35); color: #0a84ff; }
 .chip.chip-jazz:active, .chip.chip-jazz:hover { border-color: #ffd60a; box-shadow: 0 0 10px rgba(255, 214, 10, 0.35); color: #ffd60a; }
+.chip.chip-classical:active, .chip.chip-classical:hover { border-color: #ffcc00; box-shadow: 0 0 10px rgba(255, 204, 0, 0.35); color: #ffcc00; }
 .chip.chip-ambient:active, .chip.chip-ambient:hover { border-color: #30d158; box-shadow: 0 0 10px rgba(48, 209, 88, 0.35); color: #30d158; }
 .chip.chip-bollywood:active, .chip.chip-bollywood:hover { border-color: #ff9f0a; box-shadow: 0 0 10px rgba(255, 159, 10, 0.35); color: #ff9f0a; }
+.chip.chip-indian:active, .chip.chip-indian:hover { border-color: #ff9300; box-shadow: 0 0 10px rgba(255, 147, 0, 0.35); color: #ff9300; }
+.chip.chip-country:active, .chip.chip-country:hover { border-color: #ac8e68; box-shadow: 0 0 10px rgba(172, 142, 104, 0.35); color: #ac8e68; }
+.chip.chip-reggae:active, .chip.chip-reggae:hover { border-color: #30d158; box-shadow: 0 0 10px rgba(48, 209, 88, 0.35); color: #30d158; }
 .chip.chip-news:active, .chip.chip-news:hover { border-color: #acb5c0; box-shadow: 0 0 10px rgba(172, 181, 192, 0.35); color: #acb5c0; }
 
 /* Chat Input Bottom Row */

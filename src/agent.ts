@@ -560,12 +560,24 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
   });
 
   // Map user query to Radio Browser tag/country filters
-  if (lowercaseQuery.includes('bollywood') || lowercaseQuery.includes('hindi') || lowercaseQuery.includes('indian')) {
+  if (lowercaseQuery.includes('bollywood')) {
     rbParams.set('tag', 'bollywood');
+    curatedFallback = [
+      { name: 'Vividh Bharati', location: 'India', genre: 'Bollywood/Hindi', url: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/chunklist.m3u8', description: 'All India Radio Vividh Bharati.', trusted: true },
+      { name: 'Fnf.Fm Hindi', location: 'India', genre: 'Bollywood/Hindi', url: 'https://stream.zeno.fm/f3t72886w0duv', description: 'Hindi Bollywood music stream.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('hindi')) {
+    rbParams.set('tag', 'hindi');
+    curatedFallback = [
+      { name: 'Vividh Bharati', location: 'India', genre: 'Bollywood/Hindi', url: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/chunklist.m3u8', description: 'All India Radio Vividh Bharati.', trusted: true },
+      { name: 'Fnf.Fm Hindi', location: 'India', genre: 'Bollywood/Hindi', url: 'https://stream.zeno.fm/f3t72886w0duv', description: 'Hindi Bollywood music stream.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('indian') || lowercaseQuery.includes('india')) {
+    rbParams.set('tag', 'indian');
     rbParams.set('country', 'India');
     curatedFallback = [
       { name: 'Vividh Bharati', location: 'India', genre: 'Bollywood/Hindi', url: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/chunklist.m3u8', description: 'All India Radio Vividh Bharati.', trusted: true },
-      { name: 'SomaFM Groove Salad', location: 'USA', genre: 'Chillout', url: 'https://ice1.somafm.com/groovesalad-128-mp3', description: 'SomaFM fallback.', trusted: true },
+      { name: 'Fnf.Fm Hindi', location: 'India', genre: 'Bollywood/Hindi', url: 'https://stream.zeno.fm/f3t72886w0duv', description: 'Hindi Bollywood music stream.', trusted: true }
     ];
   } else if (lowercaseQuery.includes('jazz') || lowercaseQuery.includes('paris')) {
     rbParams.set('tag', 'jazz');
@@ -622,10 +634,43 @@ async function internalSearch(query: string): Promise<{ stations: any[]; fallbac
     curatedFallback = [
       { name: 'SomaFM Sonic Universe', location: 'San Francisco, USA', genre: 'Classical/Jazz', url: 'https://ice1.somafm.com/sonicuniverse-128-mp3', description: 'Transcendent classical jazz.', trusted: true },
     ];
+  } else if (lowercaseQuery.includes('kpop') || lowercaseQuery.includes('k-pop') || lowercaseQuery.includes('korean')) {
+    rbParams.set('tag', 'kpop');
+    curatedFallback = [
+      { name: 'Listen.moe Kpop', location: 'South Korea', genre: 'K-Pop', url: 'https://listen.moe/kpop/stream', description: 'Listen.moe K-Pop stream.', trusted: true },
+      { name: 'Exclusively BTS', location: 'UAE', genre: 'K-Pop', url: 'https://nl4.mystreaming.net/er/bts/icecast.audio', description: 'BTS non-stop hits.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('jpop') || lowercaseQuery.includes('j-pop') || lowercaseQuery.includes('japanese')) {
+    rbParams.set('tag', 'jpop');
+    curatedFallback = [
+      { name: 'Listen.Moe Jpop', location: 'Japan', genre: 'J-Pop', url: 'https://listen.moe/stream', description: 'Listen.moe J-Pop stream.', trusted: true },
+      { name: 'Anime Para Ti', location: 'Japan', genre: 'J-Pop', url: 'https://stream.zeno.fm/qpn8mkt8c4duv', description: 'Anime sound tracks.', trusted: true }
+    ];
   } else if (lowercaseQuery.includes('pop') || lowercaseQuery.includes('hits') || lowercaseQuery.includes('top 40')) {
     rbParams.set('tag', 'pop');
     curatedFallback = [
       { name: 'SomaFM PopTron', location: 'San Francisco, USA', genre: 'Pop/Electronic', url: 'https://ice1.somafm.com/poptron-128-mp3', description: 'Synth-pop and dance.', trusted: true },
+    ];
+  } else if (lowercaseQuery.includes('hiphop') || lowercaseQuery.includes('hip-hop') || lowercaseQuery.includes('rap')) {
+    rbParams.set('tag', 'hiphop');
+    curatedFallback = [
+      { name: '181.FM The Beat (HipHop/R&B)', location: 'USA', genre: 'Hip-Hop/R&B', url: 'http://listen.181fm.com/181-beat_128k.mp3', description: 'Top Hip-Hop and R&B hits.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('metal') || lowercaseQuery.includes('heavy metal') || lowercaseQuery.includes('hard rock')) {
+    rbParams.set('tag', 'metal');
+    curatedFallback = [
+      { name: 'Rock Antenne Heavy Metal', location: 'Germany', genre: 'Heavy Metal', url: 'https://stream.rockantenne.de/heavy-metal/stream/mp3', description: 'Heavy Metal from Rock Antenne.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('country') || lowercaseQuery.includes('folk')) {
+    rbParams.set('tag', 'country');
+    curatedFallback = [
+      { name: 'SomaFM Boot Liquor', location: 'San Francisco, USA', genre: 'Country/Americana', url: 'https://ice1.somafm.com/bootliquor-128-mp3', description: 'SomaFM Boot Liquor.', trusted: true },
+      { name: '181.FM Kickin Country', location: 'USA', genre: 'Country', url: 'http://listen.181fm.com/181-kickincountry_128k.mp3', description: 'Today\'s Hot Country Hits.', trusted: true }
+    ];
+  } else if (lowercaseQuery.includes('reggae') || lowercaseQuery.includes('dub')) {
+    rbParams.set('tag', 'reggae');
+    curatedFallback = [
+      { name: 'Joint Radio Reggae', location: 'Israel', genre: 'Reggae', url: 'http://shoutcast.jointil.com:8012/stream', description: 'Non-stop reggae vibes.', trusted: true }
     ];
   } else {
     // Generic name search
